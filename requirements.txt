@@ -1,0 +1,36 @@
+# requirements.txt - Open Range Breakout Trading Strategy
+
+# Core Fyers API (manages its own websocket-client version)
+fyers-apiv3>=3.0.8
+
+# Data processing and analysis
+pandas>=2.1.0
+numpy>=1.24.0
+
+# HTTP requests and environment management
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# Timezone handling
+pytz>=2023.3
+
+# Financial data (for historical analysis and fallback)
+yfinance>=0.2.18
+
+# System monitoring and performance
+psutil>=5.9.0
+
+# Development and testing (optional)
+pytest>=7.0.0
+
+# Statistical analysis for technical indicators
+scipy>=1.11.0
+
+# Date/time utilities
+python-dateutil>=2.8.0
+
+# Logging enhancements
+colorlog>=6.7.0
+
+# Note: websocket-client will be automatically installed by fyers-apiv3
+# at the correct version to avoid conflicts
