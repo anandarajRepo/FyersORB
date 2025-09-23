@@ -37,222 +37,92 @@ class ORBSymbolManager:
         # Single source of truth for all symbols
         self._symbols: Dict[str, SymbolInfo] = {
 
-            # Large Cap Stocks - High Volume, Good for ORB
-            "RELIANCE": SymbolInfo(
-                display_symbol="RELIANCE",
-                fyers_symbol="NSE:RELIANCE-EQ",
-                company_name="Reliance Industries Limited",
-                category=SymbolCategory.LARGE_CAP
+            # IPO Stocks
+            "EUROPRATIK": SymbolInfo(
+                display_symbol="EUROPRATIK",
+                fyers_symbol="NSE:EUROPRATIK-EQ",
+                company_name="Euro Pratik Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "TCS": SymbolInfo(
-                display_symbol="TCS",
-                fyers_symbol="NSE:TCS-EQ",
-                company_name="Tata Consultancy Services Limited",
-                category=SymbolCategory.LARGE_CAP
+            "SHRINGARMS": SymbolInfo(
+                display_symbol="SHRINGARMS",
+                fyers_symbol="NSE:SHRINGARMS-EQ",
+                company_name="Shringar House of Mangalsutra Ltd",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "HDFCBANK": SymbolInfo(
-                display_symbol="HDFCBANK",
-                fyers_symbol="NSE:HDFCBANK-EQ",
-                company_name="HDFC Bank Limited",
-                category=SymbolCategory.LARGE_CAP
+            "URBANCO": SymbolInfo(
+                display_symbol="URBANCO",
+                fyers_symbol="NSE:URBANCO-EQ",
+                company_name="Urban Company Ltd",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "INFY": SymbolInfo(
-                display_symbol="INFY",
-                fyers_symbol="NSE:INFY-EQ",
-                company_name="Infosys Limited",
-                category=SymbolCategory.LARGE_CAP
+            "AMANTA": SymbolInfo(
+                display_symbol="AMANTA",
+                fyers_symbol="NSE:AMANTA-EQ",
+                company_name="Amanta Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "ICICIBANK": SymbolInfo(
-                display_symbol="ICICIBANK",
-                fyers_symbol="NSE:ICICIBANK-EQ",
-                company_name="ICICI Bank Limited",
-                category=SymbolCategory.LARGE_CAP
+            "VIKRAMSOLR": SymbolInfo(
+                display_symbol="VIKRAMSOLR",
+                fyers_symbol="NSE:VIKRAMSOLR-EQ",
+                company_name="Vikram Solar Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "HINDUNILVR": SymbolInfo(
-                display_symbol="HINDUNILVR",
-                fyers_symbol="NSE:HINDUNILVR-EQ",
-                company_name="Hindustan Unilever Limited",
-                category=SymbolCategory.LARGE_CAP
+            "SHREEJISPG": SymbolInfo(
+                display_symbol="SHREEJISPG",
+                fyers_symbol="NSE:SHREEJISPG-EQ",
+                company_name="Shreeji Shipping Global Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "ITC": SymbolInfo(
-                display_symbol="ITC",
-                fyers_symbol="NSE:ITC-EQ",
-                company_name="ITC Limited",
-                category=SymbolCategory.LARGE_CAP
+            "PATELRMART": SymbolInfo(
+                display_symbol="PATELRMART",
+                fyers_symbol="NSE:PATELRMART-EQ",
+                company_name="Patel Retail Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "SBIN": SymbolInfo(
-                display_symbol="SBIN",
-                fyers_symbol="NSE:SBIN-EQ",
-                company_name="State Bank of India",
-                category=SymbolCategory.LARGE_CAP
+            "REGAAL": SymbolInfo(
+                display_symbol="REGAAL",
+                fyers_symbol="NSE:REGAAL-EQ",
+                company_name="Regaal Resources",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "BHARTIARTL": SymbolInfo(
-                display_symbol="BHARTIARTL",
-                fyers_symbol="NSE:BHARTIARTL-EQ",
-                company_name="Bharti Airtel Limited",
-                category=SymbolCategory.LARGE_CAP
-            ),
-            "WIPRO": SymbolInfo(
-                display_symbol="WIPRO",
-                fyers_symbol="NSE:WIPRO-EQ",
-                company_name="Wipro Limited",
-                category=SymbolCategory.LARGE_CAP
+            "HILINFRA": SymbolInfo(
+                display_symbol="HILINFRA",
+                fyers_symbol="NSE:HILINFRA-EQ",
+                company_name="Highway Infrastructure",
+                category=SymbolCategory.SMALL_CAP
             ),
 
-            # More Large Cap Stocks
-            "MARUTI": SymbolInfo(
-                display_symbol="MARUTI",
-                fyers_symbol="NSE:MARUTI-EQ",
-                company_name="Maruti Suzuki India Limited",
-                category=SymbolCategory.LARGE_CAP
+            # Favourite Stocks
+            "STLNETWORK": SymbolInfo(
+                display_symbol="STLNETWORK",
+                fyers_symbol="NSE:STLNETWORK-EQ",
+                company_name="STL Network Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "ASIANPAINT": SymbolInfo(
-                display_symbol="ASIANPAINT",
-                fyers_symbol="NSE:ASIANPAINT-EQ",
-                company_name="Asian Paints Limited",
-                category=SymbolCategory.LARGE_CAP
+            "STLTECH": SymbolInfo(
+                display_symbol="STLTECH",
+                fyers_symbol="NSE:STLTECH-EQ",
+                company_name="STL Technology Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "NESTLEIND": SymbolInfo(
-                display_symbol="NESTLEIND",
-                fyers_symbol="NSE:NESTLEIND-EQ",
-                company_name="Nestle India Limited",
-                category=SymbolCategory.LARGE_CAP
+            "SKYGOLD": SymbolInfo(
+                display_symbol="SKYGOLD",
+                fyers_symbol="NSE:SKYGOLD-EQ",
+                company_name="Sky Gold Limited",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "KOTAKBANK": SymbolInfo(
-                display_symbol="KOTAKBANK",
-                fyers_symbol="NSE:KOTAKBANK-EQ",
-                company_name="Kotak Mahindra Bank Limited",
-                category=SymbolCategory.LARGE_CAP
+            "AXISCADES": SymbolInfo(
+                display_symbol="AXISCADES",
+                fyers_symbol="NSE:AXISCADES-EQ",
+                company_name="Axiscades Technologies Ltd",
+                category=SymbolCategory.SMALL_CAP
             ),
-            "AXISBANK": SymbolInfo(
-                display_symbol="AXISBANK",
-                fyers_symbol="NSE:AXISBANK-EQ",
-                company_name="Axis Bank Limited",
-                category=SymbolCategory.LARGE_CAP
-            ),
-
-            # Mid Cap Stocks with Good ORB Potential
-            "HCLTECH": SymbolInfo(
-                display_symbol="HCLTECH",
-                fyers_symbol="NSE:HCLTECH-EQ",
-                company_name="HCL Technologies Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "TECHM": SymbolInfo(
-                display_symbol="TECHM",
-                fyers_symbol="NSE:TECHM-EQ",
-                company_name="Tech Mahindra Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "TATAMOTORS": SymbolInfo(
-                display_symbol="TATAMOTORS",
-                fyers_symbol="NSE:TATAMOTORS-EQ",
-                company_name="Tata Motors Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "SUNPHARMA": SymbolInfo(
-                display_symbol="SUNPHARMA",
-                fyers_symbol="NSE:SUNPHARMA-EQ",
-                company_name="Sun Pharmaceutical Industries Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "DRREDDY": SymbolInfo(
-                display_symbol="DRREDDY",
-                fyers_symbol="NSE:DRREDDY-EQ",
-                company_name="Dr. Reddy's Laboratories Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "TATASTEEL": SymbolInfo(
-                display_symbol="TATASTEEL",
-                fyers_symbol="NSE:TATASTEEL-EQ",
-                company_name="Tata Steel Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "JSWSTEEL": SymbolInfo(
-                display_symbol="JSWSTEEL",
-                fyers_symbol="NSE:JSWSTEEL-EQ",
-                company_name="JSW Steel Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "ONGC": SymbolInfo(
-                display_symbol="ONGC",
-                fyers_symbol="NSE:ONGC-EQ",
-                company_name="Oil and Natural Gas Corporation Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "NTPC": SymbolInfo(
-                display_symbol="NTPC",
-                fyers_symbol="NSE:NTPC-EQ",
-                company_name="NTPC Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "POWERGRID": SymbolInfo(
-                display_symbol="POWERGRID",
-                fyers_symbol="NSE:POWERGRID-EQ",
-                company_name="Power Grid Corporation of India Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-
-            # Additional High-Volume Stocks
-            "BAJAJ-AUTO": SymbolInfo(
-                display_symbol="BAJAJ-AUTO",
-                fyers_symbol="NSE:BAJAJ-AUTO-EQ",
-                company_name="Bajaj Auto Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "M&M": SymbolInfo(
-                display_symbol="M&M",
-                fyers_symbol="NSE:M&M-EQ",
-                company_name="Mahindra & Mahindra Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "HEROMOTOCO": SymbolInfo(
-                display_symbol="HEROMOTOCO",
-                fyers_symbol="NSE:HEROMOTOCO-EQ",
-                company_name="Hero MotoCorp Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "BRITANNIA": SymbolInfo(
-                display_symbol="BRITANNIA",
-                fyers_symbol="NSE:BRITANNIA-EQ",
-                company_name="Britannia Industries Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "DABUR": SymbolInfo(
-                display_symbol="DABUR",
-                fyers_symbol="NSE:DABUR-EQ",
-                company_name="Dabur India Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "MARICO": SymbolInfo(
-                display_symbol="MARICO",
-                fyers_symbol="NSE:MARICO-EQ",
-                company_name="Marico Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "TATACONSUM": SymbolInfo(
-                display_symbol="TATACONSUM",
-                fyers_symbol="NSE:TATACONSUM-EQ",
-                company_name="Tata Consumer Products Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "COALINDIA": SymbolInfo(
-                display_symbol="COALINDIA",
-                fyers_symbol="NSE:COALINDIA-EQ",
-                company_name="Coal India Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "IOC": SymbolInfo(
-                display_symbol="IOC",
-                fyers_symbol="NSE:IOC-EQ",
-                company_name="Indian Oil Corporation Limited",
-                category=SymbolCategory.MID_CAP
-            ),
-            "BPCL": SymbolInfo(
-                display_symbol="BPCL",
-                fyers_symbol="NSE:BPCL-EQ",
-                company_name="Bharat Petroleum Corporation Limited",
-                category=SymbolCategory.MID_CAP
+            "SATTRIX": SymbolInfo(
+                display_symbol="SATTRIX",
+                fyers_symbol="BSE:SATTRIX-MT",
+                company_name="Satrix Information Security Ltd",
+                category=SymbolCategory.SMALL_CAP
             ),
         }
 

@@ -160,7 +160,7 @@ class ConfigFactory:
 
     @staticmethod
     def create_custom_config(
-            portfolio_value: float = 1000000,
+            portfolio_value: float = 10000,
             risk_per_trade: float = 1.0,
             max_positions: int = 5,
             websocket_profile: str = "orb_optimized"
