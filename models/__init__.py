@@ -3,6 +3,7 @@
 """
 Trading Models Package for ORB Strategy
 Contains all data models, trading signals, positions, and performance tracking classes
+Updated to use centralized symbol management
 """
 
 from .trading_models import (
@@ -17,12 +18,21 @@ from .trading_models import (
 
     # Performance and metrics
     StrategyMetrics,
-    MarketState
+    MarketState,
+
+    # Utility functions
+    create_orb_signal_from_symbol,
+    create_position_from_signal,
+    create_trade_result_from_position,
+    get_category_summary,
+    validate_signal_quality,
+    calculate_portfolio_risk
 )
 
 from datetime import datetime
 from typing import List, Dict, Optional
-from config import Sector, SignalType
+from config.settings import SignalType
+from config.symbols import SymbolCategory, symbol_manager
 
 __version__ = "2.0.0"
 __author__ = "ORB Trading Strategy Team"
@@ -44,13 +54,21 @@ __all__ = [
 
     # Utility functions
     "create_sample_quote",
+    "create_sample_opening_range",
     "create_sample_orb_signal",
+    "create_sample_position",
     "calculate_position_pnl",
     "validate_trade_result",
+    "create_orb_signal_from_symbol",
+    "create_position_from_signal",
+    "create_trade_result_from_position",
+    "get_category_summary",
+    "validate_signal_quality",
+    "calculate_portfolio_risk"
 ]
 
 
-# Utility functions for creating and validating models
+# Utility functions for creating and validating models (UPDATED)
 def create_sample_quote(symbol: str, price: float = 100.0) -> LiveQuote:
     """Create a sample LiveQuote for testing"""
     return LiveQuote(
@@ -88,7 +106,7 @@ def create_sample_orb_signal(
         entry_price: float = 100.0,
         confidence: float = 0.8
 ) -> ORBSignal:
-    """Create a sample ORB signal for testing"""
+    """Create a sample ORB signal for testing - UPDATED to use centralized symbols"""
     opening_range = create_sample_opening_range(symbol, entry_price * 0.99)
 
     if signal_type == SignalType.LONG:
@@ -100,9 +118,13 @@ def create_sample_orb_signal(
         stop_loss = breakout_price * 1.01
         target_price = breakout_price * 0.98
 
+    # Get category from centralized symbol manager
+    symbol_info = symbol_manager.get_symbol_info(symbol)
+    category = symbol_info.category if symbol_info else SymbolCategory.LARGE_CAP
+
     return ORBSignal(
         symbol=symbol,
-        sector=Sector.IT,  # Default sector
+        category=category,  # UPDATED: Use category instead of sector
         signal_type=signal_type,
         breakout_price=breakout_price,
         range_high=opening_range.high,
@@ -128,12 +150,12 @@ def create_sample_position(
         entry_price: float = 100.0,
         quantity: int = 100
 ) -> Position:
-    """Create a sample position for testing"""
+    """Create a sample position for testing - UPDATED to use centralized symbols"""
     signal = create_sample_orb_signal(symbol, signal_type, entry_price)
 
     return Position(
         symbol=symbol,
-        sector=Sector.IT,
+        category=signal.category,  # UPDATED: Use category instead of sector
         signal_type=signal_type,
         entry_price=entry_price,
         quantity=quantity if signal_type == SignalType.LONG else -quantity,
@@ -197,7 +219,7 @@ def validate_trade_result(trade: TradeResult) -> bool:
     return True
 
 
-# Data conversion utilities
+# Data conversion utilities (UPDATED)
 def quote_to_dict(quote: LiveQuote) -> Dict:
     """Convert LiveQuote to dictionary"""
     return {
@@ -215,10 +237,10 @@ def quote_to_dict(quote: LiveQuote) -> Dict:
 
 
 def signal_to_dict(signal: ORBSignal) -> Dict:
-    """Convert ORBSignal to dictionary"""
+    """Convert ORBSignal to dictionary - UPDATED"""
     return {
         'symbol': signal.symbol,
-        'sector': signal.sector.value,
+        'category': signal.category.value,  # UPDATED: Use category instead of sector
         'signal_type': signal.signal_type.value,
         'breakout_price': signal.breakout_price,
         'entry_price': signal.entry_price,
@@ -233,10 +255,10 @@ def signal_to_dict(signal: ORBSignal) -> Dict:
 
 
 def position_to_dict(position: Position) -> Dict:
-    """Convert Position to dictionary"""
+    """Convert Position to dictionary - UPDATED"""
     return {
         'symbol': position.symbol,
-        'sector': position.sector.value,
+        'category': position.category.value,  # UPDATED: Use category instead of sector
         'signal_type': position.signal_type.value,
         'entry_price': position.entry_price,
         'quantity': position.quantity,
@@ -248,14 +270,14 @@ def position_to_dict(position: Position) -> Dict:
     }
 
 
-# Model factory class
+# Model factory class (UPDATED)
 class ModelFactory:
     """Factory for creating model instances"""
 
     @staticmethod
     def create_test_portfolio() -> List[Position]:
-        """Create a test portfolio with sample positions"""
-        symbols = ['TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'RELIANCE.NS']
+        """Create a test portfolio with sample positions - UPDATED"""
+        symbols = ['TCS', 'INFY', 'HDFCBANK', 'RELIANCE']  # Use display symbols
         positions = []
 
         for i, symbol in enumerate(symbols):
@@ -272,22 +294,22 @@ class ModelFactory:
 
     @staticmethod
     def create_test_signals() -> List[ORBSignal]:
-        """Create test signals for different scenarios"""
+        """Create test signals for different scenarios - UPDATED"""
         signals = []
 
         # High confidence long signal
         signals.append(create_sample_orb_signal(
-            'TCS.NS', SignalType.LONG, 3500.0, 0.9
+            'TCS', SignalType.LONG, 3500.0, 0.9
         ))
 
         # Medium confidence short signal
         signals.append(create_sample_orb_signal(
-            'HDFCBANK.NS', SignalType.SHORT, 1600.0, 0.7
+            'HDFCBANK', SignalType.SHORT, 1600.0, 0.7
         ))
 
         # Low confidence signal (should be filtered out)
         signals.append(create_sample_orb_signal(
-            'RELIANCE.NS', SignalType.LONG, 2400.0, 0.4
+            'RELIANCE', SignalType.LONG, 2400.0, 0.4
         ))
 
         return signals
@@ -297,13 +319,14 @@ class ModelFactory:
 model_factory = ModelFactory()
 
 
-# Statistics and analysis utilities
+# Statistics and analysis utilities (UPDATED)
 def calculate_portfolio_metrics(positions: List[Position], current_quotes: Dict[str, LiveQuote]) -> Dict:
     """Calculate portfolio-level metrics"""
     total_unrealized = 0.0
     total_invested = 0.0
     long_positions = 0
     short_positions = 0
+    category_distribution = {}
 
     for position in positions:
         total_invested += abs(position.entry_price * position.quantity)
@@ -312,6 +335,10 @@ def calculate_portfolio_metrics(positions: List[Position], current_quotes: Dict[
             long_positions += 1
         else:
             short_positions += 1
+
+        # Track category distribution
+        category = position.category.value
+        category_distribution[category] = category_distribution.get(category, 0) + 1
 
         # Calculate unrealized P&L if quote available
         if position.symbol in current_quotes:
@@ -324,7 +351,8 @@ def calculate_portfolio_metrics(positions: List[Position], current_quotes: Dict[
         'short_positions': short_positions,
         'total_invested': total_invested,
         'total_unrealized_pnl': total_unrealized,
-        'unrealized_pnl_pct': (total_unrealized / total_invested * 100) if total_invested > 0 else 0
+        'unrealized_pnl_pct': (total_unrealized / total_invested * 100) if total_invested > 0 else 0,
+        'category_distribution': category_distribution  # UPDATED: Show category distribution
     }
 
 
@@ -339,6 +367,22 @@ def analyze_trade_results(trades: List[TradeResult]) -> Dict:
     total_pnl = sum(t.net_pnl for t in trades)
     avg_holding_period = sum(t.holding_period for t in trades) / len(trades)
 
+    # Category analysis
+    category_performance = {}
+    for trade in trades:
+        category = trade.category.value
+        if category not in category_performance:
+            category_performance[category] = {'trades': 0, 'wins': 0, 'total_pnl': 0.0}
+
+        category_performance[category]['trades'] += 1
+        category_performance[category]['total_pnl'] += trade.net_pnl
+        if trade.net_pnl > 0:
+            category_performance[category]['wins'] += 1
+
+    # Calculate win rates by category
+    for category_data in category_performance.values():
+        category_data['win_rate'] = (category_data['wins'] / category_data['trades']) * 100
+
     return {
         'total_trades': len(trades),
         'winning_trades': len(winning_trades),
@@ -348,5 +392,30 @@ def analyze_trade_results(trades: List[TradeResult]) -> Dict:
         'avg_win': sum(t.net_pnl for t in winning_trades) / len(winning_trades) if winning_trades else 0,
         'avg_loss': sum(t.net_pnl for t in losing_trades) / len(losing_trades) if losing_trades else 0,
         'avg_holding_period': avg_holding_period,
-        'profit_factor': abs(sum(t.net_pnl for t in winning_trades) / sum(t.net_pnl for t in losing_trades)) if losing_trades else float('inf')
+        'profit_factor': abs(sum(t.net_pnl for t in winning_trades) / sum(t.net_pnl for t in losing_trades)) if losing_trades else float('inf'),
+        'category_performance': category_performance  # UPDATED: Category-wise performance
     }
+
+
+# Helper function to get symbol info for display
+def get_symbol_display_info(symbol: str) -> Dict:
+    """Get display information for a symbol"""
+    symbol_info = symbol_manager.get_symbol_info(symbol)
+    if symbol_info:
+        return {
+            'display_symbol': symbol_info.display_symbol,
+            'company_name': symbol_info.company_name,
+            'category': symbol_info.category.value,
+            'fyers_symbol': symbol_info.fyers_symbol
+        }
+    else:
+        return {
+            'display_symbol': symbol,
+            'company_name': symbol,
+            'category': 'UNKNOWN',
+            'fyers_symbol': f'NSE:{symbol}-EQ'
+        }
+
+
+# Add the helper function to exports
+__all__.append("get_symbol_display_info")

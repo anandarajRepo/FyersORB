@@ -9,7 +9,6 @@ from .settings import (
     FyersConfig,
     ORBStrategyConfig,
     TradingConfig,
-    Sector,
     SignalType
 )
 
@@ -19,6 +18,19 @@ from .websocket_config import (
     ReconnectionStrategy,
     WebSocketProfiles,
     create_websocket_config
+)
+
+# Import centralized symbol management
+from .symbols import (
+    symbol_manager,
+    SymbolCategory,
+    SymbolInfo,
+    get_orb_symbols,
+    get_orb_fyers_symbols,
+    convert_to_fyers_format,
+    convert_from_fyers_format,
+    validate_orb_symbol,
+    get_symbol_mappings
 )
 
 __version__ = "2.0.0"
@@ -31,8 +43,7 @@ __all__ = [
     "ORBStrategyConfig",
     "TradingConfig",
 
-    # Enums
-    "Sector",
+    # Enums (removed Sector enum)
     "SignalType",
 
     # WebSocket configuration
@@ -41,6 +52,17 @@ __all__ = [
     "ReconnectionStrategy",
     "WebSocketProfiles",
     "create_websocket_config",
+
+    # Symbol management
+    "symbol_manager",
+    "SymbolCategory",
+    "SymbolInfo",
+    "get_orb_symbols",
+    "get_orb_fyers_symbols",
+    "convert_to_fyers_format",
+    "convert_from_fyers_format",
+    "validate_orb_symbol",
+    "get_symbol_mappings",
 ]
 
 
@@ -97,7 +119,7 @@ def get_production_config():
     }
 
 
-# Validation functions
+# Validation functions (updated to remove Sector references)
 def validate_fyers_config(config: FyersConfig) -> bool:
     """Validate Fyers configuration"""
     if not config.client_id:
@@ -122,7 +144,7 @@ def validate_strategy_config(config: ORBStrategyConfig) -> bool:
     return True
 
 
-# Configuration factory
+# Configuration factory (updated)
 class ConfigFactory:
     """Factory class for creating different configuration sets"""
 
@@ -162,3 +184,40 @@ class ConfigFactory:
 
 # Export factory for easy access
 config_factory = ConfigFactory()
+
+
+# Symbol management utilities
+def get_orb_trading_universe():
+    """Get complete ORB trading universe information"""
+    return {
+        'total_symbols': symbol_manager.get_trading_universe_size(),
+        'symbols': get_orb_symbols(),
+        'fyers_symbols': get_orb_fyers_symbols(),
+        'category_distribution': symbol_manager.get_category_distribution(),
+        'sample_mappings': {
+            symbol: convert_to_fyers_format(symbol)
+            for symbol in get_orb_symbols()[:5]
+        }
+    }
+
+
+def validate_symbol_list(symbols: list) -> dict:
+    """Validate a list of symbols for ORB trading"""
+    validation_result = {
+        'valid_symbols': [],
+        'invalid_symbols': [],
+        'total_count': len(symbols),
+        'valid_count': 0,
+        'invalid_count': 0
+    }
+
+    for symbol in symbols:
+        if validate_orb_symbol(symbol):
+            validation_result['valid_symbols'].append(symbol)
+        else:
+            validation_result['invalid_symbols'].append(symbol)
+
+    validation_result['valid_count'] = len(validation_result['valid_symbols'])
+    validation_result['invalid_count'] = len(validation_result['invalid_symbols'])
+
+    return validation_result

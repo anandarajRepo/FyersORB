@@ -2,7 +2,7 @@
 
 """
 Enhanced Fyers WebSocket service for Open Range Breakout strategy
-Provides real-time data with ORB-specific features and fallback mechanisms
+Uses centralized symbol management - no hardcoded mappings
 """
 
 import logging
@@ -20,13 +20,14 @@ from fyers_apiv3.FyersWebsocket import data_ws
 
 from config.settings import FyersConfig
 from config.websocket_config import WebSocketConfig
+from config.symbols import symbol_manager, convert_to_fyers_format, convert_from_fyers_format
 from models.trading_models import LiveQuote, OpenRange
 
 logger = logging.getLogger(__name__)
 
 
 class ORBWebSocketService:
-    """Enhanced WebSocket service with ORB-specific features"""
+    """Enhanced WebSocket service with centralized symbol management"""
 
     def __init__(self, fyers_config: FyersConfig, ws_config: WebSocketConfig):
         self.fyers_config = fyers_config
@@ -48,66 +49,6 @@ class ORBWebSocketService:
 
         # Fyers WebSocket instance
         self.fyers_socket = None
-
-        # Enhanced symbol mapping for ORB stocks
-        self.symbol_mapping = {
-            # FMCG
-            'NESTLEIND.NS': 'NSE:NESTLEIND-EQ',
-            'COLPAL.NS': 'NSE:COLPAL-EQ',
-            'TATACONSUM.NS': 'NSE:TATACONSUM-EQ',
-            'HINDUNILVR.NS': 'NSE:HINDUNILVR-EQ',
-            'ITC.NS': 'NSE:ITC-EQ',
-            'BRITANNIA.NS': 'NSE:BRITANNIA-EQ',
-            'DABUR.NS': 'NSE:DABUR-EQ',
-            'MARICO.NS': 'NSE:MARICO-EQ',
-
-            # IT
-            'TCS.NS': 'NSE:TCS-EQ',
-            'INFY.NS': 'NSE:INFY-EQ',
-            'WIPRO.NS': 'NSE:WIPRO-EQ',
-            'HCLTECH.NS': 'NSE:HCLTECH-EQ',
-            'TECHM.NS': 'NSE:TECHM-EQ',
-            'LTIM.NS': 'NSE:LTIM-EQ',
-
-            # Banking
-            'HDFCBANK.NS': 'NSE:HDFCBANK-EQ',
-            'ICICIBANK.NS': 'NSE:ICICIBANK-EQ',
-            'SBIN.NS': 'NSE:SBIN-EQ',
-            'AXISBANK.NS': 'NSE:AXISBANK-EQ',
-            'KOTAKBANK.NS': 'NSE:KOTAKBANK-EQ',
-            'INDUSINDBK.NS': 'NSE:INDUSINDBK-EQ',
-
-            # Auto
-            'MARUTI.NS': 'NSE:MARUTI-EQ',
-            'TATAMOTORS.NS': 'NSE:TATAMOTORS-EQ',
-            'BAJAJ-AUTO.NS': 'NSE:BAJAJ-AUTO-EQ',
-            'M&M.NS': 'NSE:M&M-EQ',
-            'HEROMOTOCO.NS': 'NSE:HEROMOTOCO-EQ',
-            'EICHERMOT.NS': 'NSE:EICHERMOT-EQ',
-
-            # Energy & Infrastructure
-            'RELIANCE.NS': 'NSE:RELIANCE-EQ',
-            'ONGC.NS': 'NSE:ONGC-EQ',
-            'IOC.NS': 'NSE:IOC-EQ',
-            'BPCL.NS': 'NSE:BPCL-EQ',
-            'NTPC.NS': 'NSE:NTPC-EQ',
-            'POWERGRID.NS': 'NSE:POWERGRID-EQ',
-
-            # Pharma
-            'SUNPHARMA.NS': 'NSE:SUNPHARMA-EQ',
-            'DRREDDY.NS': 'NSE:DRREDDY-EQ',
-            'CIPLA.NS': 'NSE:CIPLA-EQ',
-            'DIVISLAB.NS': 'NSE:DIVISLAB-EQ',
-
-            # Metals
-            'TATASTEEL.NS': 'NSE:TATASTEEL-EQ',
-            'JSWSTEEL.NS': 'NSE:JSWSTEEL-EQ',
-            'HINDALCO.NS': 'NSE:HINDALCO-EQ',
-            'COALINDIA.NS': 'NSE:COALINDIA-EQ',
-        }
-
-        # Create reverse mapping
-        self.reverse_symbol_mapping = {v: k for k, v in self.symbol_mapping.items()}
 
         # ORB timing control
         self.orb_period_start = None
@@ -192,26 +133,37 @@ class ORBWebSocketService:
             logger.error(f"Error disconnecting: {e}")
 
     def subscribe_symbols(self, symbols: List[str]) -> bool:
-        """Subscribe to symbols with ORB-specific setup"""
+        """Subscribe to symbols using centralized symbol management"""
         try:
             if not self.is_connected:
                 logger.error("WebSocket not connected")
                 return False
 
-            # Convert to Fyers format
+            # Convert display symbols to Fyers format using centralized manager
             fyers_symbols = []
-            for symbol in symbols:
-                fyers_symbol = self.symbol_mapping.get(symbol, symbol)
-                fyers_symbols.append(fyers_symbol)
-                self.subscribed_symbols.add(symbol)
+            valid_symbols = []
 
-                # Initialize ORB data cache for each symbol
-                self.orb_data_cache[symbol] = []
+            for symbol in symbols:
+                fyers_symbol = convert_to_fyers_format(symbol)
+                if fyers_symbol:
+                    fyers_symbols.append(fyers_symbol)
+                    valid_symbols.append(symbol)
+                    self.subscribed_symbols.add(symbol)
+                    # Initialize ORB data cache for each symbol
+                    self.orb_data_cache[symbol] = []
+                else:
+                    logger.warning(f"Unknown symbol: {symbol} - skipping")
+
+            if not fyers_symbols:
+                logger.error("No valid symbols to subscribe")
+                return False
 
             # Subscribe using official API
             self.fyers_socket.subscribe(symbols=fyers_symbols, data_type="SymbolUpdate")
 
-            logger.info(f"Subscribed to {len(symbols)} symbols for ORB strategy: {symbols}")
+            logger.info(f"Subscribed to {len(valid_symbols)} symbols for ORB strategy")
+            logger.debug(f"Valid symbols: {valid_symbols}")
+            logger.debug(f"Fyers symbols: {fyers_symbols}")
             return True
 
         except Exception as e:
@@ -285,19 +237,19 @@ class ORBWebSocketService:
             logger.debug(f"Message content: {message}")
 
     def _process_fyers_data(self, data):
-        """Process data from Fyers WebSocket with ORB enhancements"""
+        """Process data from Fyers WebSocket with centralized symbol conversion"""
         try:
             # Handle different data formats from Fyers
             if isinstance(data, dict):
                 symbol_data = data.get('symbol', '')
 
-                # Map back to our symbol format
-                our_symbol = self.reverse_symbol_mapping.get(symbol_data)
+                # Convert back to display format using centralized manager
+                display_symbol = convert_from_fyers_format(symbol_data)
 
-                if our_symbol and isinstance(data, dict):
+                if display_symbol and isinstance(data, dict):
                     # Create LiveQuote from Fyers data
                     live_quote = LiveQuote(
-                        symbol=our_symbol,
+                        symbol=display_symbol,
                         ltp=float(data.get('ltp', data.get('last_price', 0))),
                         open_price=float(data.get('open_price', data.get('open', 0))),
                         high_price=float(data.get('high_price', data.get('high', 0))),
@@ -308,24 +260,24 @@ class ORBWebSocketService:
                     )
 
                     # Update storage
-                    self.live_quotes[our_symbol] = live_quote
+                    self.live_quotes[display_symbol] = live_quote
 
                     # ORB-specific processing
-                    self._process_orb_data(our_symbol, live_quote)
+                    self._process_orb_data(display_symbol, live_quote)
 
                     # Update daily high/low tracking
-                    self._update_daily_extremes(our_symbol, live_quote)
+                    self._update_daily_extremes(display_symbol, live_quote)
 
                     # Notify callbacks
                     for callback in self.data_callbacks:
                         try:
-                            callback(our_symbol, live_quote)
+                            callback(display_symbol, live_quote)
                         except Exception as e:
                             logger.error(f"Callback error: {e}")
 
                     # Detailed logging for active ORB period
                     if self.is_orb_period_active:
-                        logger.debug(f"ORB Data - {our_symbol}: Rs.{live_quote.ltp:.2f} "
+                        logger.debug(f"ORB Data - {display_symbol}: Rs.{live_quote.ltp:.2f} "
                                      f"H:{live_quote.high_price:.2f} L:{live_quote.low_price:.2f} "
                                      f"Vol:{live_quote.volume}")
 
@@ -427,9 +379,9 @@ class ORBWebSocketService:
         logger.info("Daily ORB data reset completed")
 
 
-# Enhanced fallback service with ORB support
+# Enhanced fallback service with centralized symbol management
 class ORBFallbackDataService:
-    """Fallback service using REST API with ORB capabilities"""
+    """Fallback service using REST API with centralized symbol management"""
 
     def __init__(self, fyers_config: FyersConfig, ws_config: WebSocketConfig):
         self.fyers_config = fyers_config
@@ -454,26 +406,6 @@ class ORBFallbackDataService:
         # Threading
         self.polling_thread = None
         self.stop_event = threading.Event()
-
-        # Symbol mapping (same as WebSocket service)
-        self.symbol_mapping = {
-            'NESTLEIND.NS': 'NSE:NESTLEIND-EQ',
-            'COLPAL.NS': 'NSE:COLPAL-EQ',
-            'TATACONSUM.NS': 'NSE:TATACONSUM-EQ',
-            'HINDUNILVR.NS': 'NSE:HINDUNILVR-EQ',
-            'ITC.NS': 'NSE:ITC-EQ',
-            'BRITANNIA.NS': 'NSE:BRITANNIA-EQ',
-            'TCS.NS': 'NSE:TCS-EQ',
-            'INFY.NS': 'NSE:INFY-EQ',
-            'HDFCBANK.NS': 'NSE:HDFCBANK-EQ',
-            'ICICIBANK.NS': 'NSE:ICICIBANK-EQ',
-            'SBIN.NS': 'NSE:SBIN-EQ',
-            'RELIANCE.NS': 'NSE:RELIANCE-EQ',
-            'MARUTI.NS': 'NSE:MARUTI-EQ',
-            'TATAMOTORS.NS': 'NSE:TATAMOTORS-EQ',
-        }
-
-        self.reverse_symbol_mapping = {v: k for k, v in self.symbol_mapping.items()}
 
     def connect(self) -> bool:
         """Start fallback data service with ORB support"""
@@ -529,10 +461,11 @@ class ORBFallbackDataService:
                 time.sleep(10)
 
     def _fetch_quotes_orb(self):
-        """Fetch quotes with ORB processing"""
+        """Fetch quotes with ORB processing using centralized symbols"""
         try:
             symbols = list(self.subscribed_symbols)
-            fyers_symbols = [self.symbol_mapping.get(s, s) for s in symbols]
+            # Convert to Fyers format using centralized manager
+            fyers_symbols = [convert_to_fyers_format(s) for s in symbols if convert_to_fyers_format(s)]
 
             # Limit to 25 symbols per request
             symbol_chunks = [fyers_symbols[i:i + 25] for i in range(0, len(fyers_symbols), 25)]
@@ -552,14 +485,15 @@ class ORBFallbackDataService:
             logger.debug(f"Fetch ORB quotes error: {e}")
 
     def _process_rest_quotes_orb(self, data: dict):
-        """Process quotes from REST API with ORB awareness"""
+        """Process quotes from REST API with centralized symbol conversion"""
         try:
             for fyers_symbol, quote_data in data.items():
-                our_symbol = self.reverse_symbol_mapping.get(fyers_symbol)
+                # Convert back to display format using centralized manager
+                display_symbol = convert_from_fyers_format(fyers_symbol)
 
-                if our_symbol and isinstance(quote_data, dict):
+                if display_symbol and isinstance(quote_data, dict):
                     live_quote = LiveQuote(
-                        symbol=our_symbol,
+                        symbol=display_symbol,
                         ltp=float(quote_data.get('lp', 0)),
                         open_price=float(quote_data.get('open_price', 0)),
                         high_price=float(quote_data.get('high_price', 0)),
@@ -570,17 +504,17 @@ class ORBFallbackDataService:
                     )
 
                     # Update storage
-                    old_quote = self.live_quotes.get(our_symbol)
-                    self.live_quotes[our_symbol] = live_quote
+                    old_quote = self.live_quotes.get(display_symbol)
+                    self.live_quotes[display_symbol] = live_quote
 
                     # ORB processing (similar to WebSocket service)
-                    self._process_orb_data_fallback(our_symbol, live_quote)
+                    self._process_orb_data_fallback(display_symbol, live_quote)
 
                     # Only notify callbacks if price changed significantly
                     if not old_quote or abs(old_quote.ltp - live_quote.ltp) > 0.01:
                         for callback in self.data_callbacks:
                             try:
-                                callback(our_symbol, live_quote)
+                                callback(display_symbol, live_quote)
                             except Exception as e:
                                 logger.error(f"Callback error: {e}")
 
@@ -619,10 +553,17 @@ class ORBFallbackDataService:
             logger.error(f"Error processing fallback ORB data for {symbol}: {e}")
 
     def subscribe_symbols(self, symbols: List[str]) -> bool:
-        """Subscribe to symbols in fallback mode"""
-        self.subscribed_symbols.update(symbols)
-        logger.info(f"Subscribed to {len(symbols)} symbols in fallback mode: {symbols}")
-        return True
+        """Subscribe to symbols in fallback mode with validation"""
+        valid_symbols = []
+        for symbol in symbols:
+            if convert_to_fyers_format(symbol):  # Validate using centralized manager
+                valid_symbols.append(symbol)
+            else:
+                logger.warning(f"Invalid symbol for fallback mode: {symbol}")
+
+        self.subscribed_symbols.update(valid_symbols)
+        logger.info(f"Subscribed to {len(valid_symbols)} symbols in fallback mode: {valid_symbols}")
+        return len(valid_symbols) > 0
 
     def unsubscribe_symbols(self, symbols: List[str]) -> bool:
         """Unsubscribe from symbols"""
@@ -657,9 +598,9 @@ class ORBFallbackDataService:
         logger.info("ORB Fallback service disconnected")
 
 
-# Hybrid service for ORB strategy
+# Hybrid service for ORB strategy with centralized symbol management
 class HybridORBDataService:
-    """Hybrid service that tries WebSocket first, falls back to REST API with ORB support"""
+    """Hybrid service that tries WebSocket first, falls back to REST API with centralized symbols"""
 
     def __init__(self, fyers_config: FyersConfig, ws_config: WebSocketConfig):
         self.fyers_config = fyers_config
@@ -714,11 +655,19 @@ class HybridORBDataService:
             service.add_data_callback(callback)
 
     def subscribe_symbols(self, symbols: List[str]) -> bool:
-        """Subscribe using active service"""
+        """Subscribe using active service with validation"""
         active_service = self.fallback_service if self.using_fallback else self.primary_service
         if active_service:
-            self.subscribed_symbols.update(symbols)
-            return active_service.subscribe_symbols(symbols)
+            # Validate symbols using centralized manager
+            valid_symbols = [s for s in symbols if convert_to_fyers_format(s)]
+            invalid_symbols = [s for s in symbols if not convert_to_fyers_format(s)]
+
+            if invalid_symbols:
+                logger.warning(f"Invalid symbols ignored: {invalid_symbols}")
+
+            if valid_symbols:
+                self.subscribed_symbols.update(valid_symbols)
+                return active_service.subscribe_symbols(valid_symbols)
         return False
 
     def add_data_callback(self, callback: Callable):
@@ -757,3 +706,14 @@ class HybridORBDataService:
         if self.fallback_service:
             self.fallback_service.disconnect()
         self.is_connected = False
+
+    def get_service_info(self) -> Dict[str, any]:
+        """Get information about current service configuration"""
+        return {
+            'using_fallback': self.using_fallback,
+            'is_connected': self.is_connected,
+            'subscribed_symbols_count': len(self.subscribed_symbols),
+            'total_available_symbols': symbol_manager.get_trading_universe_size(),
+            'service_type': 'REST API' if self.using_fallback else 'WebSocket',
+            'symbol_validation': 'Centralized Symbol Manager'
+        }

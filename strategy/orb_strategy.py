@@ -1,9 +1,9 @@
 # strategy/orb_strategy.py
 
 """
-Open Range Breakout (ORB) Strategy Implementation
+Open Range Breakout (ORB) Strategy Implementation - Updated with Centralized Symbol Management
 Complete strategy with WebSocket integration, risk management, and performance tracking
-MODIFIED: Removed sector allocation limits
+Uses centralized symbol configuration - no hardcoded mappings or sector limitations
 """
 
 import asyncio
@@ -11,11 +11,17 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 
-from config.settings import FyersConfig, ORBStrategyConfig, TradingConfig, Sector, SignalType
+from config.settings import FyersConfig, ORBStrategyConfig, TradingConfig, SignalType
 from config.websocket_config import WebSocketConfig
+from config.symbols import (
+    symbol_manager, get_orb_symbols, SymbolCategory,
+    validate_orb_symbol, convert_to_fyers_format
+)
 from models.trading_models import (
     Position, ORBSignal, LiveQuote, OpenRange, TradeResult,
-    StrategyMetrics, MarketState
+    StrategyMetrics, MarketState, create_orb_signal_from_symbol,
+    create_position_from_signal, create_trade_result_from_position,
+    get_category_summary, validate_signal_quality, calculate_portfolio_risk
 )
 from services.fyers_websocket_service import HybridORBDataService
 from services.analysis_service import ORBTechnicalAnalysisService
@@ -25,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class ORBStrategy:
-    """Complete Open Range Breakout Strategy with WebSocket Integration"""
+    """Complete Open Range Breakout Strategy with Centralized Symbol Management"""
 
     def __init__(self, fyers_config: FyersConfig, strategy_config: ORBStrategyConfig,
                  trading_config: TradingConfig, ws_config: WebSocketConfig):
@@ -53,64 +59,9 @@ class ORBStrategy:
         self.daily_pnl = 0.0
         self.max_daily_loss = self.strategy_config.portfolio_value * 0.02  # 2% max daily loss
 
-        # Enhanced stock universe with sectors (kept for informational purposes only)
-        self.stock_universe = {
-            # FMCG Stocks
-            'NESTLEIND.NS': Sector.FMCG,
-            'COLPAL.NS': Sector.FMCG,
-            'HINDUNILVR.NS': Sector.FMCG,
-            'ITC.NS': Sector.FMCG,
-            'BRITANNIA.NS': Sector.FMCG,
-            'DABUR.NS': Sector.FMCG,
-            'MARICO.NS': Sector.FMCG,
-            'TATACONSUM.NS': Sector.FMCG,
-
-            # IT Stocks
-            'TCS.NS': Sector.IT,
-            'INFY.NS': Sector.IT,
-            'WIPRO.NS': Sector.IT,
-            'HCLTECH.NS': Sector.IT,
-            'TECHM.NS': Sector.IT,
-            'LTIM.NS': Sector.IT,
-
-            # Banking Stocks
-            'HDFCBANK.NS': Sector.BANKING,
-            'ICICIBANK.NS': Sector.BANKING,
-            'SBIN.NS': Sector.BANKING,
-            'AXISBANK.NS': Sector.BANKING,
-            'KOTAKBANK.NS': Sector.BANKING,
-            'INDUSINDBK.NS': Sector.BANKING,
-
-            # Auto Stocks
-            'MARUTI.NS': Sector.AUTO,
-            'TATAMOTORS.NS': Sector.AUTO,
-            'BAJAJ-AUTO.NS': Sector.AUTO,
-            'M&M.NS': Sector.AUTO,
-            'HEROMOTOCO.NS': Sector.AUTO,
-            'EICHERMOT.NS': Sector.AUTO,
-
-            # Energy & Infrastructure
-            'RELIANCE.NS': Sector.ENERGY,
-            'ONGC.NS': Sector.ENERGY,
-            'IOC.NS': Sector.ENERGY,
-            'BPCL.NS': Sector.ENERGY,
-            'NTPC.NS': Sector.INFRASTRUCTURE,
-            'POWERGRID.NS': Sector.INFRASTRUCTURE,
-
-            # Pharma
-            'SUNPHARMA.NS': Sector.PHARMA,
-            'DRREDDY.NS': Sector.PHARMA,
-            'CIPLA.NS': Sector.PHARMA,
-            'DIVISLAB.NS': Sector.PHARMA,
-
-            # Metals
-            'TATASTEEL.NS': Sector.METALS,
-            'JSWSTEEL.NS': Sector.METALS,
-            'HINDALCO.NS': Sector.METALS,
-            'COALINDIA.NS': Sector.METALS,
-        }
-
-        # REMOVED: Sector allocation limits - no longer enforced
+        # Get trading universe from centralized symbol manager
+        self.trading_symbols = get_orb_symbols()
+        logger.info(f"ORB Strategy initialized with {len(self.trading_symbols)} symbols from centralized manager")
 
         # Real-time data tracking
         self.live_quotes: Dict[str, LiveQuote] = {}
@@ -122,15 +73,15 @@ class ORBStrategy:
     async def initialize(self) -> bool:
         """Initialize strategy and data connections"""
         try:
-            logger.info("Initializing ORB Strategy...")
+            logger.info("Initializing ORB Strategy with centralized symbol management...")
 
             # Connect to data service
             if not self.data_service.connect():
                 logger.error("Failed to connect to data service")
                 return False
 
-            # Subscribe to all symbols
-            symbols = list(self.stock_universe.keys())
+            # Subscribe to all symbols from centralized manager
+            symbols = get_orb_symbols()
             if not self.data_service.subscribe_symbols(symbols):
                 logger.error("Failed to subscribe to symbols")
                 return False
@@ -138,10 +89,13 @@ class ORBStrategy:
             # Initialize market state
             self._update_market_state()
 
-            logger.info(f"ORB Strategy initialized with {len(symbols)} symbols")
-            logger.info(f"Max positions: {self.strategy_config.max_positions}")
-            logger.info(f"Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
-            logger.info("Sector allocation limits DISABLED - positions based on signal quality only")
+            # Log strategy configuration
+            logger.info(f"ORB Strategy initialized successfully:")
+            logger.info(f"  Total symbols: {len(symbols)}")
+            logger.info(f"  Max positions: {self.strategy_config.max_positions}")
+            logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
+            logger.info(f"  Symbol categories: {symbol_manager.get_category_distribution()}")
+            logger.info("  Position allocation: Based on signal quality only (no category limits)")
 
             return True
 
@@ -152,6 +106,11 @@ class ORBStrategy:
     def _on_live_data_update(self, symbol: str, live_quote: LiveQuote):
         """Handle real-time data updates"""
         try:
+            # Validate symbol using centralized manager
+            if not validate_orb_symbol(symbol):
+                logger.warning(f"Received data for invalid symbol: {symbol}")
+                return
+
             # Update internal storage
             self.live_quotes[symbol] = live_quote
 
@@ -267,7 +226,7 @@ class ORBStrategy:
 
             # Log ORB progress
             completed_ranges = len([r for r in self.opening_ranges.values() if r.range_size > 0])
-            logger.debug(f"ORB Progress: {completed_ranges}/{len(self.stock_universe)} ranges calculated")
+            logger.debug(f"ORB Progress: {completed_ranges}/{len(self.trading_symbols)} ranges calculated")
 
         except Exception as e:
             logger.error(f"Error processing ORB period: {e}")
@@ -284,12 +243,10 @@ class ORBStrategy:
             # Look for breakout signals
             new_signals = []
 
-            for symbol, sector in self.stock_universe.items():
+            for symbol in self.trading_symbols:
                 # Skip if we already have a position in this symbol
                 if symbol in self.positions:
                     continue
-
-                # REMOVED: Sector allocation check - no longer enforced
 
                 # Get current data
                 live_quote = self.live_quotes.get(symbol)
@@ -305,7 +262,7 @@ class ORBStrategy:
 
                 if is_breakout:
                     signal = await self._evaluate_breakout_signal(
-                        symbol, sector, signal_type, breakout_level, opening_range, live_quote
+                        symbol, signal_type, breakout_level, opening_range, live_quote
                     )
 
                     if signal:
@@ -317,13 +274,13 @@ class ORBStrategy:
             # Execute signals up to position limit
             available_slots = self.strategy_config.max_positions - len(self.positions)
             for signal in new_signals[:available_slots]:
-                if signal.confidence >= self.strategy_config.min_confidence:
+                if validate_signal_quality(signal, self.strategy_config.min_confidence):
                     await self._execute_signal(signal)
 
         except Exception as e:
             logger.error(f"Error scanning for breakouts: {e}")
 
-    async def _evaluate_breakout_signal(self, symbol: str, sector: Sector, signal_type: str,
+    async def _evaluate_breakout_signal(self, symbol: str, signal_type: str,
                                         breakout_level: float, opening_range: OpenRange,
                                         live_quote: LiveQuote) -> Optional[ORBSignal]:
         """Evaluate a potential breakout signal"""
@@ -351,10 +308,9 @@ class ORBStrategy:
             risk_amount = abs(entry_price - stop_loss)
             reward_amount = abs(target_price - entry_price)
 
-            # Create signal
-            signal = ORBSignal(
+            # Create signal using centralized symbol management
+            signal = create_orb_signal_from_symbol(
                 symbol=symbol,
-                sector=sector,
                 signal_type=signal_type_enum,
                 breakout_price=breakout_level,
                 range_high=opening_range.high,
@@ -373,7 +329,11 @@ class ORBStrategy:
                 reward_amount=reward_amount
             )
 
-            logger.info(f"ORB Signal: {symbol} {signal_type_enum.value} - "
+            # Get symbol info for logging
+            symbol_info = symbol_manager.get_symbol_info(symbol)
+            category = symbol_info.category.value if symbol_info else "UNKNOWN"
+
+            logger.info(f"ORB Signal: {symbol} ({category}) {signal_type_enum.value} - "
                         f"Entry: Rs.{entry_price:.2f}, SL: Rs.{stop_loss:.2f}, "
                         f"Target: Rs.{target_price:.2f}, Confidence: {confidence:.2f}")
 
@@ -382,8 +342,6 @@ class ORBStrategy:
         except Exception as e:
             logger.error(f"Error evaluating breakout signal for {symbol}: {e}")
             return None
-
-    # REMOVED: _can_add_position_in_sector method - no longer needed
 
     async def _execute_signal(self, signal: ORBSignal) -> bool:
         """Execute a trading signal"""
@@ -400,20 +358,10 @@ class ORBStrategy:
                 logger.warning(f"Invalid quantity calculated for {signal.symbol}")
                 return False
 
-            # Create position
-            position = Position(
-                symbol=signal.symbol,
-                sector=signal.sector,
-                signal_type=signal.signal_type,
-                entry_price=signal.entry_price,
+            # Create position using utility function
+            position = create_position_from_signal(
+                signal=signal,
                 quantity=quantity if signal.signal_type == SignalType.LONG else -quantity,
-                stop_loss=signal.stop_loss,
-                target_price=signal.target_price,
-                breakout_price=signal.breakout_price,
-                range_high=signal.range_high,
-                range_low=signal.range_low,
-                entry_time=datetime.now(),
-                orb_signal_time=signal.timestamp,
                 order_id=f"ORB_{signal.symbol}_{int(datetime.now().timestamp())}"
             )
 
@@ -421,10 +369,9 @@ class ORBStrategy:
             self.positions[signal.symbol] = position
             self.signals_generated_today.append(signal)
 
-            logger.info(f"ORB Position Opened: {signal.symbol} {signal.signal_type.value} - "
+            logger.info(f"ORB Position Opened: {signal.symbol} ({signal.category.value}) {signal.signal_type.value} - "
                         f"Qty: {abs(quantity)}, Entry: Rs.{signal.entry_price:.2f}, "
-                        f"Range: Rs.{signal.range_low:.2f}-{signal.range_high:.2f}, "
-                        f"Sector: {signal.sector.value}")
+                        f"Range: Rs.{signal.range_low:.2f}-{signal.range_high:.2f}")
 
             # In real implementation, place actual orders here
             # await self._place_entry_order(position)
@@ -529,34 +476,19 @@ class ORBStrategy:
             position = self.positions[symbol]
             current_price = self.live_quotes[symbol].ltp
 
-            # Create trade result
-            trade_result = TradeResult(
-                symbol=symbol,
-                sector=position.sector,
-                signal_type=position.signal_type,
-                entry_price=position.entry_price,
-                exit_price=current_price,
-                quantity=abs(position.quantity),
-                entry_time=position.entry_time,
-                exit_time=datetime.now(),
-                breakout_price=position.breakout_price,
-                range_size=position.range_high - position.range_low,
-                gross_pnl=pnl,
-                exit_reason=reason,
-                max_favorable_excursion=position.max_favorable_excursion,
-                max_adverse_excursion=position.max_adverse_excursion
-            )
+            # Create trade result using utility function
+            trade_result = create_trade_result_from_position(position, current_price, reason)
 
             # Store completed trade
             self.completed_trades.append(trade_result)
 
             # Update daily P&L
-            self.daily_pnl += pnl
+            self.daily_pnl += trade_result.net_pnl
 
             # Remove position
             del self.positions[symbol]
 
-            logger.info(f"Position Closed: {symbol} - {reason} - P&L: Rs.{pnl:.2f}")
+            logger.info(f"Position Closed: {symbol} - {reason} - P&L: Rs.{trade_result.net_pnl:.2f}")
 
             # In real implementation, place closing orders here
             # await self._place_exit_order(position, current_price)
@@ -609,10 +541,11 @@ class ORBStrategy:
             long_positions = sum(1 for p in self.positions.values() if p.signal_type == SignalType.LONG)
             short_positions = len(self.positions) - long_positions
 
-            # Count positions by sector (for informational purposes)
-            sector_counts = {}
-            for position in self.positions.values():
-                sector_counts[position.sector] = sector_counts.get(position.sector, 0) + 1
+            # Count positions by category (for informational purposes)
+            category_summary = get_category_summary(list(self.positions.values()))
+
+            # Calculate portfolio risk
+            risk_metrics = calculate_portfolio_risk(list(self.positions.values()), self.strategy_config.portfolio_value)
 
             logger.info(f"ORB Strategy Status:")
             logger.info(f"  Positions: {len(self.positions)}/{self.strategy_config.max_positions} "
@@ -622,11 +555,12 @@ class ORBStrategy:
             logger.info(f"  Total P&L: Rs.{self.metrics.total_pnl:.2f}")
             logger.info(f"  ORB Completed: {self.orb_completed}")
             logger.info(f"  Signals Today: {len(self.signals_generated_today)}")
-            logger.info(f"  Sector limits: DISABLED")
+            logger.info(f"  Portfolio Risk: {risk_metrics['risk_percentage']:.1f}%")
 
-            if sector_counts:
-                sector_info = ", ".join([f"{sector.value}: {count}" for sector, count in sector_counts.items()])
-                logger.info(f"  Sector Distribution: {sector_info}")
+            if category_summary:
+                category_info = ", ".join([f"{cat.value}: {info['count']}"
+                                           for cat, info in category_summary.items()])
+                logger.info(f"  Category Distribution: {category_info}")
 
         except Exception as e:
             logger.error(f"Error logging strategy status: {e}")
@@ -642,9 +576,13 @@ class ORBStrategy:
                 current_quote = self.live_quotes.get(symbol)
                 current_price = current_quote.ltp if current_quote else 0
 
+                # Get symbol info for display
+                symbol_info = symbol_manager.get_symbol_info(symbol)
+
                 position_details.append({
                     'symbol': symbol,
-                    'sector': pos.sector.value,
+                    'company_name': symbol_info.company_name if symbol_info else symbol,
+                    'category': pos.category.value,
                     'signal_type': pos.signal_type.value,
                     'entry_price': pos.entry_price,
                     'current_price': current_price,
@@ -660,8 +598,10 @@ class ORBStrategy:
             # Opening ranges summary
             orb_summary = []
             for symbol, orb_range in self.opening_ranges.items():
+                symbol_info = symbol_manager.get_symbol_info(symbol)
                 orb_summary.append({
                     'symbol': symbol,
+                    'company_name': symbol_info.company_name if symbol_info else symbol,
                     'range_high': orb_range.high,
                     'range_low': orb_range.low,
                     'range_size': orb_range.range_size,
@@ -669,8 +609,14 @@ class ORBStrategy:
                     'volume': orb_range.volume
                 })
 
+            # Portfolio risk analysis
+            risk_metrics = calculate_portfolio_risk(list(self.positions.values()), self.strategy_config.portfolio_value)
+
+            # Category distribution
+            category_summary = get_category_summary(list(self.positions.values()))
+
             return {
-                'strategy_name': 'Open Range Breakout (ORB) - No Sector Limits',
+                'strategy_name': 'Open Range Breakout (ORB) - Centralized Symbol Management',
                 'timestamp': datetime.now().isoformat(),
                 'total_pnl': self.metrics.total_pnl,
                 'daily_pnl': self.daily_pnl,
@@ -682,7 +628,15 @@ class ORBStrategy:
                 'orb_completed': self.orb_completed,
                 'signals_generated_today': len(self.signals_generated_today),
                 'websocket_connected': self.data_service.is_connected,
-                'sector_limits_disabled': True,  # Flag to indicate sector limits are disabled
+                'using_fallback': getattr(self.data_service, 'using_fallback', False),
+                'symbol_management': {
+                    'total_universe_size': symbol_manager.get_trading_universe_size(),
+                    'category_distribution': symbol_manager.get_category_distribution(),
+                    'centralized_management': True,
+                    'no_category_limits': True
+                },
+                'risk_metrics': risk_metrics,
+                'category_summary': {cat.value: info for cat, info in category_summary.items()},
                 'market_state': {
                     'orb_period_active': self.market_state.orb_period_active,
                     'signal_generation_active': self.market_state.signal_generation_active,
@@ -707,6 +661,86 @@ class ORBStrategy:
             logger.error(f"Error generating performance summary: {e}")
             return {'error': str(e)}
 
+    def get_symbol_analysis(self) -> Dict:
+        """Get analysis of symbol performance and usage"""
+        try:
+            # Analyze completed trades by symbol
+            symbol_performance = {}
+            for trade in self.completed_trades:
+                if trade.symbol not in symbol_performance:
+                    symbol_performance[trade.symbol] = {
+                        'trades': 0,
+                        'wins': 0,
+                        'total_pnl': 0.0,
+                        'category': trade.category.value
+                    }
+
+                perf = symbol_performance[trade.symbol]
+                perf['trades'] += 1
+                perf['total_pnl'] += trade.net_pnl
+                if trade.net_pnl > 0:
+                    perf['wins'] += 1
+
+            # Calculate win rates and add symbol info
+            for symbol, perf in symbol_performance.items():
+                perf['win_rate'] = (perf['wins'] / perf['trades']) * 100 if perf['trades'] > 0 else 0
+
+                # Add symbol info
+                symbol_info = symbol_manager.get_symbol_info(symbol)
+                if symbol_info:
+                    perf['company_name'] = symbol_info.company_name
+                    perf['fyers_symbol'] = symbol_info.fyers_symbol
+
+            return {
+                'symbol_performance': symbol_performance,
+                'total_symbols_traded': len(symbol_performance),
+                'total_universe_size': symbol_manager.get_trading_universe_size(),
+                'utilization_rate': len(symbol_performance) / symbol_manager.get_trading_universe_size() * 100
+            }
+
+        except Exception as e:
+            logger.error(f"Error in symbol analysis: {e}")
+            return {'error': str(e)}
+
+    def validate_trading_universe(self) -> Dict:
+        """Validate current trading universe against centralized manager"""
+        try:
+            validation_result = {
+                'valid': True,
+                'universe_size': len(self.trading_symbols),
+                'manager_size': symbol_manager.get_trading_universe_size(),
+                'invalid_symbols': [],
+                'missing_symbols': [],
+                'sync_status': 'unknown'
+            }
+
+            # Check if our symbols are valid
+            for symbol in self.trading_symbols:
+                if not validate_orb_symbol(symbol):
+                    validation_result['invalid_symbols'].append(symbol)
+                    validation_result['valid'] = False
+
+            # Check if we're missing any symbols from the manager
+            manager_symbols = get_orb_symbols()
+            for symbol in manager_symbols:
+                if symbol not in self.trading_symbols:
+                    validation_result['missing_symbols'].append(symbol)
+
+            # Determine sync status
+            if validation_result['universe_size'] == validation_result['manager_size']:
+                if not validation_result['invalid_symbols'] and not validation_result['missing_symbols']:
+                    validation_result['sync_status'] = 'perfectly_synced'
+                else:
+                    validation_result['sync_status'] = 'size_match_but_differences'
+            else:
+                validation_result['sync_status'] = 'size_mismatch'
+
+            return validation_result
+
+        except Exception as e:
+            logger.error(f"Error validating trading universe: {e}")
+            return {'error': str(e), 'valid': False}
+
     def reset_daily_data(self):
         """Reset daily data for new trading day"""
         try:
@@ -726,7 +760,8 @@ class ORBStrategy:
 
     async def run(self):
         """Main strategy execution loop"""
-        logger.info("Starting Open Range Breakout Strategy (Sector Limits Disabled)")
+        logger.info("Starting Open Range Breakout Strategy with Centralized Symbol Management")
+        logger.info(f"Trading Universe: {symbol_manager.get_trading_universe_size()} symbols")
 
         if not await self.initialize():
             logger.error("Strategy initialization failed")
@@ -763,3 +798,24 @@ class ORBStrategy:
             # Cleanup
             self.data_service.disconnect()
             logger.info("ORB Strategy disconnected and cleanup completed")
+
+    def get_data_service_info(self) -> Dict:
+        """Get information about data service configuration"""
+        try:
+            service_info = {
+                'service_type': type(self.data_service).__name__,
+                'is_connected': self.data_service.is_connected,
+                'subscribed_symbols_count': len(getattr(self.data_service, 'subscribed_symbols', [])),
+                'symbol_management': 'Centralized Symbol Manager',
+                'symbol_validation': 'Automatic via centralized manager'
+            }
+
+            # Add service-specific info if available
+            if hasattr(self.data_service, 'get_service_info'):
+                service_info.update(self.data_service.get_service_info())
+
+            return service_info
+
+        except Exception as e:
+            logger.error(f"Error getting data service info: {e}")
+            return {'error': str(e)}

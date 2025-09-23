@@ -3,7 +3,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from config.settings import Sector, SignalType
+from config.settings import SignalType
+from config.symbols import SymbolCategory
 
 
 @dataclass
@@ -46,9 +47,9 @@ class OpenRange:
 
 @dataclass
 class ORBSignal:
-    """Open Range Breakout Signal"""
+    """Open Range Breakout Signal - Updated to use SymbolCategory instead of Sector"""
     symbol: str
-    sector: Sector
+    category: SymbolCategory  # Changed from sector to category
     signal_type: SignalType  # LONG or SHORT
     breakout_price: float
     range_high: float
@@ -82,9 +83,9 @@ class ORBSignal:
 
 @dataclass
 class Position:
-    """Trading position with ORB-specific features"""
+    """Trading position with ORB-specific features - Updated to use SymbolCategory"""
     symbol: str
-    sector: Sector
+    category: SymbolCategory  # Changed from sector to category
     signal_type: SignalType
 
     # Position details
@@ -152,9 +153,9 @@ class Position:
 
 @dataclass
 class TradeResult:
-    """Completed trade result"""
+    """Completed trade result - Updated to use SymbolCategory"""
     symbol: str
-    sector: Sector
+    category: SymbolCategory  # Changed from sector to category
     signal_type: SignalType
 
     # Trade details
@@ -273,3 +274,119 @@ class MarketState:
     # Risk indicators
     max_positions_reached: bool = False
     daily_loss_limit_hit: bool = False
+
+
+# Utility functions for working with the updated models
+def create_orb_signal_from_symbol(symbol: str, signal_type: SignalType, **kwargs) -> ORBSignal:
+    """Create ORB signal with automatic category detection"""
+    from config.symbols import symbol_manager
+
+    symbol_info = symbol_manager.get_symbol_info(symbol)
+    category = symbol_info.category if symbol_info else SymbolCategory.LARGE_CAP
+
+    return ORBSignal(
+        symbol=symbol,
+        category=category,
+        signal_type=signal_type,
+        **kwargs
+    )
+
+
+def create_position_from_signal(signal: ORBSignal, quantity: int, **kwargs) -> Position:
+    """Create position from ORB signal"""
+    return Position(
+        symbol=signal.symbol,
+        category=signal.category,
+        signal_type=signal.signal_type,
+        entry_price=signal.entry_price,
+        quantity=quantity,
+        stop_loss=signal.stop_loss,
+        target_price=signal.target_price,
+        breakout_price=signal.breakout_price,
+        range_high=signal.range_high,
+        range_low=signal.range_low,
+        entry_time=datetime.now(),
+        orb_signal_time=signal.timestamp,
+        **kwargs
+    )
+
+
+def create_trade_result_from_position(position: Position, exit_price: float, exit_reason: str) -> TradeResult:
+    """Create trade result from closed position"""
+    exit_time = datetime.now()
+
+    # Calculate gross P&L
+    if position.signal_type == SignalType.LONG:
+        gross_pnl = (exit_price - position.entry_price) * position.quantity
+    else:
+        gross_pnl = (position.entry_price - exit_price) * abs(position.quantity)
+
+    return TradeResult(
+        symbol=position.symbol,
+        category=position.category,
+        signal_type=position.signal_type,
+        entry_price=position.entry_price,
+        exit_price=exit_price,
+        quantity=abs(position.quantity),
+        entry_time=position.entry_time,
+        exit_time=exit_time,
+        breakout_price=position.breakout_price,
+        range_size=position.range_high - position.range_low,
+        gross_pnl=gross_pnl,
+        exit_reason=exit_reason,
+        max_favorable_excursion=position.max_favorable_excursion,
+        max_adverse_excursion=position.max_adverse_excursion
+    )
+
+
+def get_category_summary(positions: List[Position]) -> Dict[SymbolCategory, Dict]:
+    """Get summary of positions by category"""
+    category_summary = {}
+
+    for position in positions:
+        if position.category not in category_summary:
+            category_summary[position.category] = {
+                'count': 0,
+                'total_value': 0.0,
+                'unrealized_pnl': 0.0,
+                'symbols': []
+            }
+
+        summary = category_summary[position.category]
+        summary['count'] += 1
+        summary['total_value'] += abs(position.entry_price * position.quantity)
+        summary['unrealized_pnl'] += position.unrealized_pnl
+        summary['symbols'].append(position.symbol)
+
+    return category_summary
+
+
+def validate_signal_quality(signal: ORBSignal, min_confidence: float = 0.6) -> bool:
+    """Validate signal quality based on various criteria"""
+    if signal.confidence < min_confidence:
+        return False
+
+    if signal.range_size <= 0:
+        return False
+
+    if signal.risk_amount <= 0:
+        return False
+
+    if signal.volume_ratio < 1.0:  # Below average volume
+        return False
+
+    return True
+
+
+def calculate_portfolio_risk(positions: List[Position], portfolio_value: float) -> Dict[str, float]:
+    """Calculate portfolio risk metrics"""
+    total_risk = sum(abs(pos.entry_price - pos.current_stop_loss) * abs(pos.quantity) for pos in positions)
+    total_invested = sum(abs(pos.entry_price * pos.quantity) for pos in positions)
+
+    return {
+        'total_risk_amount': total_risk,
+        'total_invested': total_invested,
+        'risk_percentage': (total_risk / portfolio_value) * 100 if portfolio_value > 0 else 0,
+        'invested_percentage': (total_invested / portfolio_value) * 100 if portfolio_value > 0 else 0,
+        'average_risk_per_position': total_risk / len(positions) if positions else 0
+    }
