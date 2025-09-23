@@ -94,7 +94,10 @@ class ORBStrategy:
             logger.info(f"  Total symbols: {len(symbols)}")
             logger.info(f"  Max positions: {self.strategy_config.max_positions}")
             logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
-            logger.info(f"  Symbol categories: {symbol_manager.get_category_distribution()}")
+            category_dist = symbol_manager.get_category_distribution()
+            readable_categories = {cat.value: count for cat, count in category_dist.items()}
+            logger.info(f"  Symbol categories: {readable_categories}")
+            # logger.info(f"  Symbol categories: {symbol_manager.get_category_distribution()}")
             logger.info("  Position allocation: Based on signal quality only (no category limits)")
 
             return True
