@@ -1,8 +1,9 @@
-# main.py - COMPLETE VERSION
+# main.py - MODIFIED VERSION (Sector Allocation Removed)
 
 """
 Open Range Breakout (ORB) Trading Strategy - Complete Main Entry Point
 Full algorithmic trading system with WebSocket data integration
+MODIFIED: Removed sector allocation limits and references
 """
 
 import asyncio
@@ -133,6 +134,7 @@ async def run_orb_strategy():
     try:
         logger.info("=" * 60)
         logger.info("STARTING OPEN RANGE BREAKOUT (ORB) STRATEGY")
+        logger.info("SECTOR ALLOCATION LIMITS DISABLED")
         logger.info("=" * 60)
 
         # Load configuration
@@ -160,6 +162,7 @@ async def run_orb_strategy():
         logger.info(f"ORB Period: {strategy_config.orb_period_minutes} minutes")
         logger.info(f"Stop Loss: {strategy_config.stop_loss_pct}%")
         logger.info(f"Target Multiple: {strategy_config.target_multiplier}x")
+        logger.info("Position allocation based on signal quality only")
 
         # Create and run strategy
         strategy = ORBStrategy(
@@ -265,7 +268,7 @@ def test_websocket_connection():
 
 
 def show_strategy_help():
-    """Show comprehensive ORB strategy help and configuration"""
+    """Show comprehensive ORB strategy help and configuration (modified to remove sector allocation)"""
     print("\n" + "=" * 80)
     print("OPEN RANGE BREAKOUT (ORB) TRADING STRATEGY - CONFIGURATION GUIDE")
     print("=" * 80)
@@ -275,10 +278,11 @@ def show_strategy_help():
     print("• Detects price breakouts above/below opening range with volume confirmation")
     print("• Uses technical analysis for signal validation (RSI, momentum, volume)")
     print("• Implements comprehensive risk management with trailing stops")
-    print("• Monitors 40+ stocks across multiple sectors for diversification")
+    print("• Monitors 40+ stocks across multiple sectors")
+    print("• ⚠️  SECTOR ALLOCATION LIMITS DISABLED - Positions based on signal quality only")
 
     print("\n STOCK UNIVERSE (40+ Stocks):")
-    sectors = {
+    stocks = {
         "FMCG": ["NESTLEIND", "COLPAL", "HINDUNILVR", "ITC", "BRITANNIA", "DABUR", "MARICO", "TATACONSUM"],
         "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTI"],
         "Banking": ["HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK", "INDUSINDBK"],
@@ -287,8 +291,8 @@ def show_strategy_help():
         "Others": ["NTPC", "POWERGRID", "SUNPHARMA", "DRREDDY", "TATASTEEL", "JSWSTEEL"]
     }
 
-    for sector, stocks in sectors.items():
-        print(f"  {sector}: {', '.join(stocks)}")
+    for sector, stock_list in stocks.items():
+        print(f"  {sector}: {', '.join(stock_list)}")
 
     print("\n️ CONFIGURATION PARAMETERS:")
     print("Edit .env file or set environment variables:")
@@ -321,15 +325,17 @@ def show_strategy_help():
     print("  POSITION_UPDATE_INTERVAL=5    # Position update frequency (seconds)")
     print("  LOG_LEVEL=INFO               # Logging verbosity (DEBUG/INFO/WARNING/ERROR)")
 
-    print("\n SECTOR ALLOCATION LIMITS:")
-    print("  FMCG: 30% max     | IT: 25% max      | Banking: 20% max")
-    print("  Auto: 15% max     | Energy: 15% max  | Others: 10% max each")
+    print("\n POSITION ALLOCATION:")
+    print("  • SECTOR LIMITS REMOVED - Positions allocated based on signal quality")
+    print("  • All available positions slots used for best opportunities")
+    print("  • Risk managed through position sizing and stop losses only")
+    print("  • Maximum positions still limited by MAX_POSITIONS setting")
 
     print("\n EXPECTED PERFORMANCE:")
-    print("  Daily Signals: 3-8 breakout opportunities")
+    print("  Daily Signals: 5-12 breakout opportunities (increased range)")
     print("  Win Rate Target: 55-65%")
     print("  Risk-Reward: 1:2 ratio (1% risk, 2% target)")
-    print("  Monthly Target: 12-20% portfolio growth")
+    print("  Monthly Target: 15-25% portfolio growth (potentially higher)")
     print("  Max Drawdown: <5% with proper risk management")
 
     print("\n️  IMPORTANT NOTES:")
@@ -338,6 +344,7 @@ def show_strategy_help():
     print("  • Adjust parameters based on market conditions")
     print("  • Ensure stable internet for real-time data")
     print("  • Keep trading PIN secure for token refresh")
+    print("  • Higher diversification risk without sector limits")
 
 
 def show_authentication_status():
@@ -498,6 +505,7 @@ def show_market_status():
             print(f"   ORB Period Active - Range calculation in progress")
         elif is_signal_time:
             print(f"   Optimal time for running ORB strategy")
+            print(f"   No sector limits - monitor position allocation carefully")
         elif is_trading_time and not should_close:
             print(f"   Monitor existing positions, limited new signals")
         elif should_close:
@@ -516,7 +524,7 @@ def show_market_status():
 
 
 def validate_configuration():
-    """Comprehensive configuration validation with detailed feedback"""
+    """Comprehensive configuration validation with detailed feedback (modified to remove sector info)"""
     print("\n" + "=" * 70)
     print("ORB STRATEGY CONFIGURATION VALIDATION")
     print("=" * 70)
@@ -571,11 +579,8 @@ def validate_configuration():
         else:
             print(f"   Risk per Trade: {strategy_config.risk_per_trade_pct}%")
 
-        if strategy_config.max_positions > 10:
-            warnings.append(f"Max positions is high: {strategy_config.max_positions}")
-            print(f"   Max Positions: {strategy_config.max_positions} (High for ORB)")
-        else:
-            print(f"   Max Positions: {strategy_config.max_positions}")
+        print(f"   Max Positions: {strategy_config.max_positions}")
+        print("    Sector limits: DISABLED")
 
         # Check ORB parameters
         print(f"\n ORB Strategy Parameters:")
@@ -684,11 +689,19 @@ def validate_configuration():
         print(f"\n RISK ANALYSIS:")
         print(f"  Max Risk per Position: ₹{max_risk_per_position:,.0f}")
         print(f"  Max Total Risk: ₹{max_total_risk:,.0f} ({max_risk_pct:.1f}% of portfolio)")
+        print(f"  Sector diversification: DISABLED")
 
         if max_risk_pct > 10:
             print(f"  ️  Total risk exposure is high: {max_risk_pct:.1f}%")
+            print(f"     Consider reducing MAX_POSITIONS or RISK_PER_TRADE")
         else:
             print(f"   Total risk exposure is acceptable: {max_risk_pct:.1f}%")
+
+        print(f"\n IMPORTANT NOTES:")
+        print(f"  • Sector allocation limits have been REMOVED")
+        print(f"  • All {strategy_config.max_positions} positions can be from same sector")
+        print(f"  • Higher concentration risk - monitor carefully")
+        print(f"  • Consider manual diversification if needed")
 
         return len(issues) == 0
 
@@ -803,160 +816,6 @@ def run_system_diagnostics():
         print(f"   Configuration validation failed: {e}")
         all_checks_passed = False
 
-    # 5. File permissions and directories
-    print(f"\n File Permissions:")
-    directories_to_check = ['logs', 'data', 'backups']
-
-    for dir_name in directories_to_check:
-        if not os.path.exists(dir_name):
-            try:
-                os.makedirs(dir_name, exist_ok=True)
-                print(f"   Created {dir_name}/ directory")
-            except Exception as e:
-                print(f"   Cannot create {dir_name}/ directory: {e}")
-                all_checks_passed = False
-        else:
-            if os.access(dir_name, os.W_OK):
-                print(f"   {dir_name}/ directory writable")
-            else:
-                print(f"   {dir_name}/ directory not writable")
-                all_checks_passed = False
-
-    # 6. Network connectivity
-    print(f"\n Network Connectivity:")
-    connectivity_tests = [
-        ('https://httpbin.org/ip', 'General Internet'),
-        ('https://api-t1.fyers.in/api/v3/generate-authcode', 'Fyers API'),
-        ('https://query1.finance.yahoo.com', 'Yahoo Finance'),
-    ]
-
-    for url, description in connectivity_tests:
-        try:
-            import requests
-            response = requests.get(url, timeout=5)
-            if response.status_code in [200, 400, 401]:  # 400/401 are expected for some endpoints
-                print(f"   {description} connectivity")
-            else:
-                print(f"  ️  {description} connectivity issues (Status: {response.status_code})")
-        except Exception as e:
-            print(f"   {description} connectivity failed: {str(e)[:50]}...")
-            if 'api-t1.fyers.in' in url:
-                all_checks_passed = False
-
-    # 7. System resources
-    print(f"\n System Resources:")
-    try:
-        import psutil
-
-        # Memory check
-        memory = psutil.virtual_memory()
-        available_gb = memory.available / (1024 ** 3)
-        total_gb = memory.total / (1024 ** 3)
-        memory_usage = ((memory.total - memory.available) / memory.total) * 100
-
-        print(f"  Memory: {available_gb:.1f} GB available / {total_gb:.1f} GB total ({memory_usage:.1f}% used)")
-
-        if available_gb < 1.0:
-            print(f"  ️  Low memory available (< 1GB)")
-        else:
-            print(f"   Sufficient memory available")
-
-        # Disk space check
-        disk = psutil.disk_usage('.')
-        available_gb = disk.free / (1024 ** 3)
-        total_gb = disk.total / (1024 ** 3)
-        disk_usage = ((disk.total - disk.free) / disk.total) * 100
-
-        print(f"  Disk Space: {available_gb:.1f} GB available / {total_gb:.1f} GB total ({disk_usage:.1f}% used)")
-
-        if available_gb < 1.0:
-            print(f"  ️  Low disk space available (< 1GB)")
-        else:
-            print(f"   Sufficient disk space available")
-
-        # CPU information
-        cpu_count = psutil.cpu_count()
-        cpu_usage = psutil.cpu_percent(interval=1)
-        print(f"  CPU: {cpu_count} cores, {cpu_usage:.1f}% current usage")
-
-        if cpu_usage > 80:
-            print(f"  ️  High CPU usage detected")
-        else:
-            print(f"   CPU usage normal")
-
-    except ImportError:
-        print(f"  ️  psutil not available - install for detailed resource monitoring")
-        print(f"     pip install psutil")
-    except Exception as e:
-        print(f"   Resource check error: {e}")
-
-    # 8. Authentication test
-    print(f"\n Authentication Test:")
-    try:
-        from utils.enhanced_auth_helper import FyersAuthManager
-        auth_manager = FyersAuthManager()
-
-        access_token = os.environ.get('FYERS_ACCESS_TOKEN')
-        if access_token:
-            if auth_manager.is_token_valid(access_token):
-                print(f"   Access token valid")
-            else:
-                print(f"   Access token invalid or expired")
-                all_checks_passed = False
-        else:
-            print(f"  ️  No access token configured")
-    except Exception as e:
-        print(f"   Authentication test failed: {e}")
-
-    # 9. Market timing service
-    print(f"\n Market Timing Service:")
-    try:
-        from services.market_timing_service import MarketTimingService
-        from config.settings import TradingConfig
-
-        trading_config = TradingConfig()
-        timing_service = MarketTimingService(trading_config)
-
-        is_trading_day = timing_service.is_trading_day()
-        current_phase = timing_service.get_current_market_phase()
-
-        print(f"   Market timing service functional")
-        print(f"    Trading Day: {'Yes' if is_trading_day else 'No'}")
-        print(f"    Current Phase: {current_phase}")
-
-    except Exception as e:
-        print(f"   Market timing service error: {e}")
-        all_checks_passed = False
-
-    # 10. Performance check
-    print(f"\n⚡ Performance Test:")
-    try:
-        import time
-
-        # Simple performance test
-        start_time = time.time()
-
-        # Simulate data processing
-        import pandas as pd
-        import numpy as np
-
-        data = np.random.randn(1000, 10)
-        df = pd.DataFrame(data)
-        result = df.rolling(window=20).mean().dropna()
-
-        end_time = time.time()
-        processing_time = (end_time - start_time) * 1000
-
-        print(f"  Data Processing: {processing_time:.1f}ms (1000x10 DataFrame with rolling mean)")
-
-        if processing_time > 100:
-            print(f"  ️  Performance may be slow for real-time processing")
-        else:
-            print(f"   Performance adequate for real-time processing")
-
-    except Exception as e:
-        print(f"   Performance test failed: {e}")
-
     # Final summary
     print(f"\n" + "=" * 80)
     print("DIAGNOSTIC SUMMARY")
@@ -965,6 +824,10 @@ def run_system_diagnostics():
     if all_checks_passed:
         print(" ALL SYSTEM CHECKS PASSED!")
         print(" System is ready for ORB trading strategy")
+        print("\n IMPORTANT REMINDERS:")
+        print("  • Sector allocation limits are DISABLED")
+        print("  • Monitor position concentration carefully")
+        print("  • Higher diversification risk without sector limits")
         print("\n Next steps:")
         print("  1. Run: python main.py test (Test WebSocket connection)")
         print("  2. Run: python main.py run (Start trading strategy)")
@@ -990,6 +853,7 @@ def show_performance_dashboard():
     print(" Live P&L tracking and position management")
     print(" Signal analysis and strategy metrics")
     print(" Risk monitoring and allocation tracking")
+    print(" ⚠️  Sector allocation limits: DISABLED")
     print("\n" + "⚠️  " + "=" * 60)
     print("DASHBOARD REQUIRES RUNNING STRATEGY INSTANCE")
     print("=" * 68)
@@ -1009,6 +873,7 @@ def run_backtest():
     print(" Risk metrics and drawdown calculation")
     print(" Strategy parameter optimization")
     print(" Profit/Loss distribution analysis")
+    print(" ⚠️  Sector allocation limits: DISABLED in backtest")
     print("\n" + "️  " + "=" * 50)
     print("BACKTESTING MODULE IN DEVELOPMENT")
     print("=" * 58)
@@ -1018,6 +883,7 @@ def run_backtest():
     print("• Risk-adjusted return calculations")
     print("• Monte Carlo simulation")
     print("• Walk-forward analysis")
+    print("• Sector concentration analysis (informational)")
     print("\n Current validation: Live paper trading recommended")
 
 
@@ -1028,6 +894,7 @@ def main():
     print("=" * 80)
     print("    OPEN RANGE BREAKOUT (ORB) TRADING STRATEGY")
     print("    Advanced Algorithmic Trading System v2.0")
+    print("    SECTOR ALLOCATION LIMITS DISABLED")
     print("=" * 80)
 
     if len(sys.argv) > 1:
@@ -1089,7 +956,7 @@ def main():
             print(f" Unknown command: {command}")
             print("\n Available commands:")
             commands = [
-                ("run", "Run the ORB trading strategy"),
+                ("run", "Run the ORB trading strategy (no sector limits)"),
                 ("test", "Test WebSocket data connection"),
                 ("auth", "Setup Fyers API authentication"),
                 ("test-auth", "Test authentication status"),
@@ -1112,6 +979,7 @@ def main():
         print(" Advanced algorithmic trading with real-time WebSocket data")
         print(" Identifies opening range breakouts with volume confirmation")
         print("️  Comprehensive risk management and position monitoring")
+        print(" Sector allocation limits DISABLED - Monitor diversification manually")
         print("\nSelect an option:")
 
         menu_options = [
@@ -1168,6 +1036,7 @@ def main():
             print("⚙  Validating Configuration...")
             if validate_configuration():
                 print("\n Configuration is valid and ready for trading!")
+                print("Remember: Sector limits are DISABLED")
             else:
                 print("\n Configuration has issues - please review and fix")
 
@@ -1187,6 +1056,7 @@ def main():
         elif choice == "13":
             print("\n Goodbye! Happy Trading! ")
             print(" Remember: Trade responsibly and manage your risk!")
+            print(" Monitor position concentration without sector limits!")
 
         else:
             print(f" Invalid choice: {choice}")

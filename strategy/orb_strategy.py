@@ -3,6 +3,7 @@
 """
 Open Range Breakout (ORB) Strategy Implementation
 Complete strategy with WebSocket integration, risk management, and performance tracking
+MODIFIED: Removed sector allocation limits
 """
 
 import asyncio
@@ -52,7 +53,7 @@ class ORBStrategy:
         self.daily_pnl = 0.0
         self.max_daily_loss = self.strategy_config.portfolio_value * 0.02  # 2% max daily loss
 
-        # Enhanced stock universe with sectors
+        # Enhanced stock universe with sectors (kept for informational purposes only)
         self.stock_universe = {
             # FMCG Stocks
             'NESTLEIND.NS': Sector.FMCG,
@@ -109,19 +110,7 @@ class ORBStrategy:
             'COALINDIA.NS': Sector.METALS,
         }
 
-        # Sector allocation limits (% of portfolio)
-        self.sector_limits = {
-            Sector.FMCG: 0.30,
-            Sector.IT: 0.25,
-            Sector.BANKING: 0.20,
-            Sector.AUTO: 0.15,
-            Sector.ENERGY: 0.15,
-            Sector.PHARMA: 0.10,
-            Sector.METALS: 0.10,
-            Sector.INFRASTRUCTURE: 0.10,
-            Sector.TELECOM: 0.05,
-            Sector.REALTY: 0.05,
-        }
+        # REMOVED: Sector allocation limits - no longer enforced
 
         # Real-time data tracking
         self.live_quotes: Dict[str, LiveQuote] = {}
@@ -152,6 +141,7 @@ class ORBStrategy:
             logger.info(f"ORB Strategy initialized with {len(symbols)} symbols")
             logger.info(f"Max positions: {self.strategy_config.max_positions}")
             logger.info(f"Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
+            logger.info("Sector allocation limits DISABLED - positions based on signal quality only")
 
             return True
 
@@ -299,9 +289,7 @@ class ORBStrategy:
                 if symbol in self.positions:
                     continue
 
-                # Check sector allocation limits
-                if not self._can_add_position_in_sector(sector):
-                    continue
+                # REMOVED: Sector allocation check - no longer enforced
 
                 # Get current data
                 live_quote = self.live_quotes.get(symbol)
@@ -395,21 +383,7 @@ class ORBStrategy:
             logger.error(f"Error evaluating breakout signal for {symbol}: {e}")
             return None
 
-    def _can_add_position_in_sector(self, sector: Sector) -> bool:
-        """Check if we can add more positions in a given sector"""
-        try:
-            # Calculate current sector exposure
-            sector_positions = [p for p in self.positions.values() if p.sector == sector]
-            sector_exposure = len(sector_positions)
-
-            # Calculate sector limit
-            max_sector_positions = int(self.strategy_config.max_positions * self.sector_limits.get(sector, 0.2))
-
-            return sector_exposure < max_sector_positions
-
-        except Exception as e:
-            logger.error(f"Error checking sector limits for {sector}: {e}")
-            return True
+    # REMOVED: _can_add_position_in_sector method - no longer needed
 
     async def _execute_signal(self, signal: ORBSignal) -> bool:
         """Execute a trading signal"""
@@ -449,7 +423,8 @@ class ORBStrategy:
 
             logger.info(f"ORB Position Opened: {signal.symbol} {signal.signal_type.value} - "
                         f"Qty: {abs(quantity)}, Entry: Rs.{signal.entry_price:.2f}, "
-                        f"Range: Rs.{signal.range_low:.2f}-{signal.range_high:.2f}")
+                        f"Range: Rs.{signal.range_low:.2f}-{signal.range_high:.2f}, "
+                        f"Sector: {signal.sector.value}")
 
             # In real implementation, place actual orders here
             # await self._place_entry_order(position)
@@ -634,7 +609,7 @@ class ORBStrategy:
             long_positions = sum(1 for p in self.positions.values() if p.signal_type == SignalType.LONG)
             short_positions = len(self.positions) - long_positions
 
-            # Count positions by sector
+            # Count positions by sector (for informational purposes)
             sector_counts = {}
             for position in self.positions.values():
                 sector_counts[position.sector] = sector_counts.get(position.sector, 0) + 1
@@ -647,6 +622,7 @@ class ORBStrategy:
             logger.info(f"  Total P&L: Rs.{self.metrics.total_pnl:.2f}")
             logger.info(f"  ORB Completed: {self.orb_completed}")
             logger.info(f"  Signals Today: {len(self.signals_generated_today)}")
+            logger.info(f"  Sector limits: DISABLED")
 
             if sector_counts:
                 sector_info = ", ".join([f"{sector.value}: {count}" for sector, count in sector_counts.items()])
@@ -694,7 +670,7 @@ class ORBStrategy:
                 })
 
             return {
-                'strategy_name': 'Open Range Breakout (ORB)',
+                'strategy_name': 'Open Range Breakout (ORB) - No Sector Limits',
                 'timestamp': datetime.now().isoformat(),
                 'total_pnl': self.metrics.total_pnl,
                 'daily_pnl': self.daily_pnl,
@@ -706,6 +682,7 @@ class ORBStrategy:
                 'orb_completed': self.orb_completed,
                 'signals_generated_today': len(self.signals_generated_today),
                 'websocket_connected': self.data_service.is_connected,
+                'sector_limits_disabled': True,  # Flag to indicate sector limits are disabled
                 'market_state': {
                     'orb_period_active': self.market_state.orb_period_active,
                     'signal_generation_active': self.market_state.signal_generation_active,
@@ -714,7 +691,6 @@ class ORBStrategy:
                 },
                 'opening_ranges': orb_summary,
                 'positions': position_details,
-                'sector_limits': {sector.value: limit for sector, limit in self.sector_limits.items()},
                 'performance_metrics': {
                     'total_trades': self.metrics.total_trades,
                     'winning_trades': self.metrics.winning_trades,
@@ -750,7 +726,7 @@ class ORBStrategy:
 
     async def run(self):
         """Main strategy execution loop"""
-        logger.info("Starting Open Range Breakout Strategy")
+        logger.info("Starting Open Range Breakout Strategy (Sector Limits Disabled)")
 
         if not await self.initialize():
             logger.error("Strategy initialization failed")
