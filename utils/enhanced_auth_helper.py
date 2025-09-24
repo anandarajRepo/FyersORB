@@ -122,38 +122,38 @@ class FyersAuthManager:
 
                 # Basic validation
                 if not pin.isdigit():
-                    print("❌ PIN must contain only numbers")
+                    print(" PIN must contain only numbers")
                     continue
 
                 if len(pin) < 4:
-                    print("❌ PIN must be at least 4 digits")
+                    print(" PIN must be at least 4 digits")
                     continue
 
                 if len(pin) > 10:
-                    print("❌ PIN seems too long (max 10 digits)")
+                    print(" PIN seems too long (max 10 digits)")
                     continue
 
                 # Confirm PIN
                 confirm_pin = self._secure_input("Confirm your trading PIN: ")
 
                 if pin != confirm_pin:
-                    print("❌ PINs do not match! Please try again.")
+                    print(" PINs do not match! Please try again.")
                     continue
 
                 # Save PIN to environment for future use
                 if self.save_to_env('FYERS_PIN', pin):
                     self.pin = pin
-                    print("✅ PIN saved successfully to .env file")
+                    print(" PIN saved successfully to .env file")
                     return pin
                 else:
-                    print("⚠️  PIN validation successful but couldn't save to .env file")
+                    print("️  PIN validation successful but couldn't save to .env file")
                     return pin
 
             except (EOFError, KeyboardInterrupt):
-                print("\n❌ PIN entry cancelled by user")
+                print("\n PIN entry cancelled by user")
                 raise ValueError("PIN entry cancelled")
             except Exception as e:
-                print(f"❌ Error getting PIN: {e}")
+                print(f" Error getting PIN: {e}")
                 if attempt == max_attempts - 1:
                     raise
 
@@ -175,43 +175,43 @@ class FyersAuthManager:
                 if verify_current != 'n':
                     current_pin = self._secure_input("Enter current PIN: ")
                     if current_pin != self.pin:
-                        print("❌ Current PIN verification failed!")
+                        print(" Current PIN verification failed!")
                         return False
-                    print("✅ Current PIN verified")
+                    print(" Current PIN verified")
 
             # Get new PIN
             new_pin = self._secure_input("Enter new PIN: ")
 
             if not new_pin:
-                print("❌ PIN cannot be empty")
+                print(" PIN cannot be empty")
                 return False
 
             if not new_pin.isdigit():
-                print("❌ PIN must contain only numbers")
+                print(" PIN must contain only numbers")
                 return False
 
             if len(new_pin) < 4:
-                print("❌ PIN must be at least 4 digits")
+                print(" PIN must be at least 4 digits")
                 return False
 
             # Confirm new PIN
             confirm_pin = self._secure_input("Confirm new PIN: ")
 
             if new_pin != confirm_pin:
-                print("❌ PINs do not match!")
+                print(" PINs do not match!")
                 return False
 
             # Save new PIN
             if self.save_to_env('FYERS_PIN', new_pin):
                 self.pin = new_pin
-                print("✅ PIN updated successfully!")
+                print(" PIN updated successfully!")
                 return True
             else:
-                print("❌ Failed to save new PIN")
+                print(" Failed to save new PIN")
                 return False
 
         except Exception as e:
-            print(f"❌ Error updating PIN: {e}")
+            print(f" Error updating PIN: {e}")
             return False
 
     def update_pin_simple(self) -> bool:
@@ -219,39 +219,39 @@ class FyersAuthManager:
         print("\n" + "=" * 50)
         print("UPDATE TRADING PIN (Simple Mode)")
         print("=" * 50)
-        print("⚠️  PIN will be visible on screen in this mode")
+        print("️  PIN will be visible on screen in this mode")
 
         try:
             new_pin = input("Enter new PIN: ").strip()
 
             if not new_pin:
-                print("❌ PIN cannot be empty")
+                print(" PIN cannot be empty")
                 return False
 
             if not new_pin.isdigit():
-                print("❌ PIN must contain only numbers")
+                print(" PIN must contain only numbers")
                 return False
 
             if len(new_pin) < 4:
-                print("❌ PIN must be at least 4 digits")
+                print(" PIN must be at least 4 digits")
                 return False
 
             confirm_pin = input("Confirm new PIN: ").strip()
 
             if new_pin != confirm_pin:
-                print("❌ PINs do not match!")
+                print(" PINs do not match!")
                 return False
 
             if self.save_to_env('FYERS_PIN', new_pin):
                 self.pin = new_pin
-                print("✅ PIN updated successfully")
+                print(" PIN updated successfully")
                 return True
             else:
-                print("❌ Error saving PIN")
+                print(" Error saving PIN")
                 return False
 
         except Exception as e:
-            print(f"❌ Error updating PIN: {e}")
+            print(f" Error updating PIN: {e}")
             return False
 
     def get_app_id_hash(self) -> str:
@@ -345,7 +345,7 @@ class FyersAuthManager:
                 # Handle specific PIN-related errors
                 if 'pin' in error_msg.lower() or 'invalid pin' in error_msg.lower():
                     logger.error(f"PIN verification failed: {error_msg}")
-                    print(f"\n❌ PIN verification failed: {error_msg}")
+                    print(f"\n PIN verification failed: {error_msg}")
                     print("The saved PIN might be incorrect.")
 
                     # Clear the saved PIN and retry once
@@ -437,60 +437,60 @@ class FyersAuthManager:
             print("=" * 70)
 
             if not all([self.client_id, self.secret_key]):
-                print("❌ Missing CLIENT_ID or SECRET_KEY in environment variables")
+                print(" Missing CLIENT_ID or SECRET_KEY in environment variables")
                 return None
 
             # PIN setup reminder
             if not self.pin:
-                print("\n💡 Trading PIN Setup:")
+                print("\nTrading PIN Setup:")
                 print("Your trading PIN will be needed for future token refreshes.")
                 print("We'll ask for it during the authentication process.")
 
             # Generate auth URL
             auth_url = self.generate_auth_url()
             if not auth_url:
-                print("❌ Failed to generate authentication URL")
+                print(" Failed to generate authentication URL")
                 return None
 
-            print(f"\n🔗 AUTHENTICATION STEPS:")
+            print(f"\n AUTHENTICATION STEPS:")
             print(f"1. Open this URL in your web browser:")
             print(f"   {auth_url}")
             print(f"\n2. Log in to your Fyers account")
             print(f"3. Complete the authorization process")
             print(f"4. Copy the authorization code from the redirect URL")
-            print(f"\n📋 The redirect URL will look like:")
+            print(f"\n The redirect URL will look like:")
             print(f"   {self.redirect_uri}?code=YOUR_AUTH_CODE&state=sample_state")
 
             # Get auth code from user
             print(f"\n" + "=" * 50)
-            auth_code = input("📝 Enter the authorization code: ").strip()
+            auth_code = input(" Enter the authorization code: ").strip()
 
             if not auth_code:
-                print("❌ No authorization code provided")
+                print(" No authorization code provided")
                 return None
 
             # Get both access and refresh tokens
-            print("🔄 Exchanging authorization code for tokens...")
+            print(" Exchanging authorization code for tokens...")
             access_token, refresh_token = self.get_tokens_from_auth_code(auth_code)
 
             if not access_token:
-                print("❌ Failed to obtain access token")
+                print(" Failed to obtain access token")
                 return None
 
-            print("✅ Tokens obtained successfully!")
+            print(" Tokens obtained successfully!")
 
             # Set up PIN for future token refreshes
             try:
-                print("\n🔒 Setting up PIN for automatic token refresh...")
+                print("\n Setting up PIN for automatic token refresh...")
                 pin = self.get_or_request_pin()
                 if pin:
-                    print("✅ PIN configured for automatic token refresh")
+                    print(" PIN configured for automatic token refresh")
             except Exception as e:
-                print(f"⚠️  PIN setup skipped: {e}")
+                print(f"  PIN setup skipped: {e}")
                 print("You can set it up later with: python main.py update-pin")
 
             # Save all tokens to .env
-            print(f"\n💾 Saving authentication data...")
+            print(f"\n Saving authentication data...")
 
             saved_items = []
             if self.save_to_env('FYERS_ACCESS_TOKEN', access_token):
@@ -500,12 +500,12 @@ class FyersAuthManager:
                 saved_items.append("Refresh Token")
 
             if saved_items:
-                print(f"✅ Saved: {', '.join(saved_items)}")
+                print(f" Saved: {', '.join(saved_items)}")
 
             # Verify the setup
             if self.is_token_valid(access_token):
-                print(f"\n🎉 AUTHENTICATION SUCCESSFUL!")
-                print(f"✅ Access token is valid and ready to use")
+                print(f"\n AUTHENTICATION SUCCESSFUL!")
+                print(f" Access token is valid and ready to use")
 
                 # Try to get profile info
                 try:
@@ -516,18 +516,18 @@ class FyersAuthManager:
                         result = response.json()
                         if result.get('s') == 'ok':
                             profile_data = result.get('data', {})
-                            print(f"👤 Account: {profile_data.get('name', 'Unknown')}")
-                            print(f"📧 Email: {profile_data.get('email', 'Unknown')}")
+                            print(f" Account: {profile_data.get('name', 'Unknown')}")
+                            print(f" Email: {profile_data.get('email', 'Unknown')}")
                 except:
                     pass  # Profile fetch is optional
 
                 return access_token
             else:
-                print(f"❌ Token validation failed after setup")
+                print(f" Token validation failed after setup")
                 return None
 
         except Exception as e:
-            print(f"❌ Authentication setup failed: {e}")
+            print(f" Authentication setup failed: {e}")
             logger.exception("Full authentication setup error")
             return None
 
@@ -567,16 +567,16 @@ def setup_auth_only():
         existing_secret_key = os.environ.get('FYERS_SECRET_KEY')
 
         if existing_client_id and existing_secret_key:
-            print("✅ Found existing API credentials in environment")
+            print(" Found existing API credentials in environment")
 
             auth_manager = FyersAuthManager()
             access_token = auth_manager.get_valid_access_token()
 
             if access_token:
-                print("🎉 Authentication successful using existing/refreshed tokens!")
+                print(" Authentication successful using existing/refreshed tokens!")
                 return True
             else:
-                print("⚠️  Existing credentials need re-authentication")
+                print("️  Existing credentials need re-authentication")
 
         # Manual setup if no credentials or auth failed
         print("\n" + "=" * 50)
@@ -587,18 +587,18 @@ def setup_auth_only():
         print("(Get these from: https://myapi.fyers.in/dashboard)")
 
         while True:
-            client_id = input("\n📝 Enter your Fyers Client ID: ").strip()
+            client_id = input("\n Enter your Fyers Client ID: ").strip()
             if client_id:
                 break
-            print("❌ Client ID cannot be empty")
+            print(" Client ID cannot be empty")
 
         while True:
-            secret_key = input("🔑 Enter your Fyers Secret Key: ").strip()
+            secret_key = input(" Enter your Fyers Secret Key: ").strip()
             if secret_key:
                 break
-            print("❌ Secret Key cannot be empty")
+            print(" Secret Key cannot be empty")
 
-        redirect_uri = input("🔗 Enter Redirect URI (press Enter for default): ").strip()
+        redirect_uri = input(" Enter Redirect URI (press Enter for default): ").strip()
         if not redirect_uri:
             redirect_uri = "https://trade.fyers.in/api-login/redirect-to-app"
 
@@ -617,18 +617,18 @@ def setup_auth_only():
         access_token = auth_manager.setup_full_authentication()
 
         if access_token:
-            print("\n🎉 Enhanced authentication setup completed!")
-            print("✅ Refresh token and PIN have been configured for automatic renewal")
+            print("\n Enhanced authentication setup completed!")
+            print(" Refresh token and PIN have been configured for automatic renewal")
             return True
         else:
-            print("\n❌ Authentication setup failed!")
+            print("\n Authentication setup failed!")
             return False
 
     except KeyboardInterrupt:
-        print("\n\n👋 Authentication setup cancelled by user")
+        print("\n\n Authentication setup cancelled by user")
         return False
     except Exception as e:
-        print(f"\n❌ Authentication setup error: {e}")
+        print(f"\n Authentication setup error: {e}")
         logger.exception("Setup authentication error")
         return False
 
@@ -644,10 +644,10 @@ def authenticate_fyers(config_dict: dict) -> bool:
         if access_token:
             # Update config with the valid token
             config_dict['fyers_config'].access_token = access_token
-            logger.info("✅ Fyers authentication successful")
+            logger.info("Fyers authentication successful")
             return True
         else:
-            logger.error("❌ Fyers authentication failed")
+            logger.error("Fyers authentication failed")
             return False
 
     except Exception as e:
@@ -665,37 +665,37 @@ def test_authentication():
         auth_manager = FyersAuthManager()
 
         if not all([auth_manager.client_id, auth_manager.secret_key]):
-            print("❌ Missing API credentials")
+            print("Missing API credentials")
             print("Run: python main.py auth")
             return False
 
-        print("🔍 Testing authentication...")
+        print(" Testing authentication...")
 
         # Test token validity
         access_token = auth_manager.get_valid_access_token()
 
         if not access_token:
-            print("❌ Authentication failed - no valid access token")
+            print("Authentication failed - no valid access token")
             return False
 
-        print("✅ Authentication successful!")
+        print("Authentication successful!")
 
         # Test API call
-        print("🧪 Testing API connection...")
+        print("Testing API connection...")
         profile_info = auth_manager.get_profile_info(access_token)
 
         if 'error' in profile_info:
-            print(f"⚠️  Profile fetch failed: {profile_info['error']}")
+            print(f"Profile fetch failed: {profile_info['error']}")
         else:
-            print("✅ API connection successful!")
-            print(f"👤 Name: {profile_info.get('name', 'Unknown')}")
-            print(f"📧 Email: {profile_info.get('email', 'Unknown')}")
-            print(f"🆔 User ID: {profile_info.get('id', 'Unknown')}")
+            print("API connection successful!")
+            print(f"Name: {profile_info.get('name', 'Unknown')}")
+            print(f"Email: {profile_info.get('email', 'Unknown')}")
+            print(f"User ID: {profile_info.get('id', 'Unknown')}")
 
         return True
 
     except Exception as e:
-        print(f"❌ Authentication test failed: {e}")
+        print(f"Authentication test failed: {e}")
         logger.exception("Authentication test error")
         return False
 
@@ -710,8 +710,8 @@ def update_pin_only():
         auth_manager = FyersAuthManager()
 
         print("Choose PIN update method:")
-        print("1. 🔒 Secure mode (PIN hidden) - Recommended")
-        print("2. 👁️  Simple mode (PIN visible) - Fallback option")
+        print("1. Secure mode (PIN hidden) - Recommended")
+        print("2. Simple mode (PIN visible) - Fallback option")
 
         choice = input("\nEnter choice (1/2) [default: 1]: ").strip()
 
@@ -721,16 +721,16 @@ def update_pin_only():
             success = auth_manager.update_pin()
 
         if success:
-            print("\n🎉 PIN update completed successfully!")
-            print("✅ Your new PIN has been saved to the .env file")
-            print("🔄 The new PIN will be used for automatic token refresh")
+            print("\n PIN update completed successfully!")
+            print("Your new PIN has been saved to the .env file")
+            print("The new PIN will be used for automatic token refresh")
         else:
-            print("\n❌ PIN update failed. Please try again.")
+            print("\nPIN update failed. Please try again.")
 
         return success
 
     except Exception as e:
-        print(f"\n❌ PIN update error: {e}")
+        print(f"\nPIN update error: {e}")
         logger.exception("PIN update error")
         return False
 
@@ -742,34 +742,34 @@ def test_pin_input():
     print("=" * 60)
 
     # Test 1: getpass
-    print("🧪 Testing secure input (getpass):")
+    print("Testing secure input (getpass):")
     getpass_works = False
     try:
         test_pin = getpass.getpass("Enter test PIN (will be hidden): ")
-        print(f"✅ Secure input works! Entered: {'*' * len(test_pin)} ({len(test_pin)} digits)")
+        print(f"Secure input works! Entered: {'*' * len(test_pin)} ({len(test_pin)} digits)")
         getpass_works = True
     except Exception as e:
-        print(f"❌ Secure input failed: {e}")
+        print(f"Secure input failed: {e}")
 
     # Test 2: regular input
-    print(f"\n🧪 Testing regular input:")
+    print(f"\nTesting regular input:")
     regular_works = False
     try:
         test_pin = input("Enter test PIN (will be visible): ")
-        print(f"✅ Regular input works! Entered: {test_pin}")
+        print(f"Regular input works! Entered: {test_pin}")
         regular_works = True
     except Exception as e:
-        print(f"❌ Regular input failed: {e}")
+        print(f"Regular input failed: {e}")
 
     # Recommendations
-    print(f"\n💡 RECOMMENDATIONS:")
+    print(f"\nRECOMMENDATIONS:")
     if getpass_works:
-        print("✅ Use secure mode (option 1) for PIN operations")
+        print("Use secure mode (option 1) for PIN operations")
     elif regular_works:
-        print("⚠️  Use simple mode (option 2) for PIN operations")
+        print("Use simple mode (option 2) for PIN operations")
         print("   Note: PIN will be visible on screen")
     else:
-        print("❌ Both input methods failed - check your environment")
+        print("Both input methods failed - check your environment")
 
     return getpass_works, regular_works
 
@@ -780,9 +780,9 @@ def show_environment_info():
     print("ENVIRONMENT INFORMATION")
     print("=" * 60)
 
-    print(f"🐍 Python Version: {sys.version}")
-    print(f"💻 Platform: {sys.platform}")
-    print(f"📟 Interactive Terminal: {sys.stdin.isatty()}")
+    print(f"Python Version: {sys.version}")
+    print(f"Platform: {sys.platform}")
+    print(f"Interactive Terminal: {sys.stdin.isatty()}")
 
     # Check if running in various environments
     environments = []
@@ -796,11 +796,11 @@ def show_environment_info():
         environments.append("VS Code Terminal")
 
     if environments:
-        print(f"🏃 Detected Environment: {', '.join(environments)}")
+        print(f"Detected Environment: {', '.join(environments)}")
     else:
-        print(f"🏃 Environment: Standard Terminal")
+        print(f"Environment: Standard Terminal")
 
-    print(f"\n💡 Note: getpass (secure input) may not work in some IDEs or notebook environments")
+    print(f"\nNote: getpass (secure input) may not work in some IDEs or notebook environments")
 
 
 # Quick test function
@@ -819,19 +819,19 @@ if __name__ == "__main__":
     print(f"\nTesting authentication manager...")
     try:
         auth_manager = FyersAuthManager()
-        print(f"✅ FyersAuthManager created successfully")
-        print(f"📋 Client ID configured: {'Yes' if auth_manager.client_id else 'No'}")
-        print(f"🔑 Secret Key configured: {'Yes' if auth_manager.secret_key else 'No'}")
-        print(f"🎫 Access Token configured: {'Yes' if auth_manager.access_token else 'No'}")
-        print(f"🔄 Refresh Token configured: {'Yes' if auth_manager.refresh_token else 'No'}")
-        print(f"📱 PIN configured: {'Yes' if auth_manager.pin else 'No'}")
+        print(f"FyersAuthManager created successfully")
+        print(f"Client ID configured: {'Yes' if auth_manager.client_id else 'No'}")
+        print(f"Secret Key configured: {'Yes' if auth_manager.secret_key else 'No'}")
+        print(f"Access Token configured: {'Yes' if auth_manager.access_token else 'No'}")
+        print(f"Refresh Token configured: {'Yes' if auth_manager.refresh_token else 'No'}")
+        print(f"PIN configured: {'Yes' if auth_manager.pin else 'No'}")
 
         # Test .env file operations
         test_key = "TEST_KEY_" + str(int(time.time()))
         test_value = "test_value_123"
 
         if auth_manager.save_to_env(test_key, test_value):
-            print(f"✅ .env file operations work correctly")
+            print(f" .env file operations work correctly")
             # Clean up test key
             try:
                 env_file = '.env'
@@ -845,10 +845,10 @@ if __name__ == "__main__":
             except:
                 pass
         else:
-            print(f"❌ .env file operations failed")
+            print(f" .env file operations failed")
 
     except Exception as e:
-        print(f"❌ Authentication manager test failed: {e}")
+        print(f" Authentication manager test failed: {e}")
 
-    print(f"\n💡 To setup full authentication, run:")
+    print(f"\n To setup full authentication, run:")
     print(f"   python main.py auth")

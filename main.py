@@ -76,7 +76,7 @@ def load_configuration():
 
         # ORB Strategy configuration
         strategy_config = ORBStrategyConfig(
-            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 1000000)),
+            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 10000)),
             risk_per_trade_pct=float(os.environ.get('RISK_PER_TRADE', 1.0)),
             max_positions=int(os.environ.get('MAX_POSITIONS', 5)),
 
@@ -156,7 +156,7 @@ async def run_orb_strategy():
         logger.info("Authentication successful - Access token validated")
 
         # Log strategy configuration
-        logger.info(f"Portfolio Value: ₹{strategy_config.portfolio_value:,}")
+        logger.info(f"Portfolio Value: {strategy_config.portfolio_value:,}")
         logger.info(f"Risk per Trade: {strategy_config.risk_per_trade_pct}%")
         logger.info(f"Max Positions: {strategy_config.max_positions}")
         logger.info(f"ORB Period: {strategy_config.orb_period_minutes} minutes")
@@ -298,7 +298,7 @@ def show_strategy_help():
     print("Edit .env file or set environment variables:")
 
     print("\n Portfolio Settings:")
-    print("  PORTFOLIO_VALUE=1000000        # Total portfolio value (₹10 lakhs)")
+    print("  PORTFOLIO_VALUE=10000        # Total portfolio value (₹10k)")
     print("  RISK_PER_TRADE=1.0            # Risk per trade (1% of portfolio)")
     print("  MAX_POSITIONS=5               # Maximum concurrent positions")
 
@@ -564,7 +564,7 @@ def validate_configuration():
 
         # Check strategy configuration
         print(f"\n Portfolio & Risk Configuration:")
-        if strategy_config.portfolio_value < 100000:
+        if strategy_config.portfolio_value < 1000:
             warnings.append(f"Portfolio value is quite low: ₹{strategy_config.portfolio_value:,}")
             print(f"   Portfolio Value: ₹{strategy_config.portfolio_value:,} (Consider higher amount)")
         else:
