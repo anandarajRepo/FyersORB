@@ -183,6 +183,7 @@ class ORBStrategy:
             if self._is_orb_period():
                 await self._process_orb_period()
             elif self._should_generate_signals():
+                logger.info(f"Generating new signals: {self._should_generate_signals()}")
                 await self._scan_for_breakouts()
 
             # Update strategy metrics
@@ -262,6 +263,8 @@ class ORBStrategy:
                 is_breakout, signal_type, breakout_level = self.data_service.is_breakout_detected(
                     symbol, live_quote.ltp
                 )
+
+                logger.info(f"Breakout detected for {symbol}: {is_breakout}, {signal_type}, {breakout_level}, {opening_range}, {live_quote}")
 
                 if is_breakout:
                     signal = await self._evaluate_breakout_signal(
