@@ -176,6 +176,15 @@ class ORBStrategy:
             if not self.timing_service.is_trading_time():
                 return
 
+            # NEW: Check if ORB period just ended and mark as completed
+            if not self.orb_completed and not self._is_orb_period():
+                now = datetime.now()
+                orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
+                if now > orb_end:
+                    self.orb_completed = True
+                    self.opening_ranges = self.data_service.get_all_opening_ranges()
+                    logger.info(f"ORB period completed - {len(self.opening_ranges)} ranges finalized")
+
             # Monitor existing positions
             await self._monitor_positions()
 
