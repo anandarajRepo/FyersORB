@@ -37,7 +37,7 @@ class FyersConfig:
 class ORBStrategyConfig:
     """Open Range Breakout Strategy Configuration"""
     # Portfolio settings
-    portfolio_value: float = 1000000
+    portfolio_value: float = 5000
     risk_per_trade_pct: float = 1.0
     max_positions: int = 5
 

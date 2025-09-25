@@ -76,7 +76,7 @@ def load_configuration():
 
         # ORB Strategy configuration
         strategy_config = ORBStrategyConfig(
-            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 10000)),
+            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 5000)),
             risk_per_trade_pct=float(os.environ.get('RISK_PER_TRADE', 1.0)),
             max_positions=int(os.environ.get('MAX_POSITIONS', 5)),
 
@@ -298,7 +298,7 @@ def show_strategy_help():
     print("Edit .env file or set environment variables:")
 
     print("\n Portfolio Settings:")
-    print("  PORTFOLIO_VALUE=10000        # Total portfolio value (₹10k)")
+    print("  PORTFOLIO_VALUE=5000          # Total portfolio value (₹5k)")
     print("  RISK_PER_TRADE=1.0            # Risk per trade (1% of portfolio)")
     print("  MAX_POSITIONS=5               # Maximum concurrent positions")
 

@@ -82,7 +82,7 @@ def validate_strategy_config(strategy_config) -> Dict[str, Any]:
         if strategy_config.portfolio_value <= 0:
             validation_result['errors'].append("Portfolio value must be positive")
             validation_result['valid'] = False
-        elif strategy_config.portfolio_value < 100000:
+        elif strategy_config.portfolio_value < 1000:
             validation_result['warnings'].append("Portfolio value is quite low for ORB strategy")
 
         # Risk validation
@@ -189,7 +189,7 @@ class StrategyFactory:
         """Create strategy configured for paper trading"""
         # Modify config for paper trading
         paper_config = strategy_config
-        paper_config.portfolio_value = min(paper_config.portfolio_value, 100000)  # Limit size
+        paper_config.portfolio_value = min(paper_config.portfolio_value, 5000)  # Limit size
         paper_config.max_positions = min(paper_config.max_positions, 3)  # Fewer positions
         paper_config.risk_per_trade_pct = min(paper_config.risk_per_trade_pct, 0.5)  # Lower risk
 
@@ -226,7 +226,7 @@ class StrategyFactory:
         )
 
         demo_strategy_config = ORBStrategyConfig(
-            portfolio_value=100000,  # 1 lakh demo portfolio
+            portfolio_value=5000,  # 1 lakh demo portfolio
             risk_per_trade_pct=0.5,  # Conservative risk
             max_positions=2,  # Limited positions
             orb_period_minutes=15,

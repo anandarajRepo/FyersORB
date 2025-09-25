@@ -90,7 +90,7 @@ def get_development_config():
             access_token=None
         ),
         'strategy': ORBStrategyConfig(
-            portfolio_value=100000,  # Smaller portfolio for testing
+            portfolio_value=5000,  # Smaller portfolio for testing
             max_positions=3,  # Fewer positions for testing
             risk_per_trade_pct=0.5  # Lower risk for testing
         ),
@@ -110,7 +110,7 @@ def get_production_config():
             access_token=None
         ),
         'strategy': ORBStrategyConfig(
-            portfolio_value=1000000,
+            portfolio_value=5000,
             max_positions=5,
             risk_per_trade_pct=1.0
         ),
@@ -160,7 +160,7 @@ class ConfigFactory:
 
     @staticmethod
     def create_custom_config(
-            portfolio_value: float = 10000,
+            portfolio_value: float = 5000,
             risk_per_trade: float = 1.0,
             max_positions: int = 5,
             websocket_profile: str = "orb_optimized"
