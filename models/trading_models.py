@@ -1,11 +1,14 @@
 # models/trading_models.py
 
+import logging
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from config.settings import SignalType
 from config.symbols import SymbolCategory
 
+logger = logging.getLogger(__name__)
 
 @dataclass
 class LiveQuote:
@@ -363,6 +366,7 @@ def get_category_summary(positions: List[Position]) -> Dict[SymbolCategory, Dict
 
 def validate_signal_quality(signal: ORBSignal, min_confidence: float = 0.6) -> bool:
     """Validate signal quality based on various criteria"""
+    logger.info(f"Validating signal quality for {signal}, signal.confidence: {signal.confidence}, signal.range_size: {signal.range_size}, signal.risk_amount: {signal.risk_amount}, signal.volume_ratio: {signal.volume_ratio}")
     if signal.confidence < min_confidence:
         return False
 

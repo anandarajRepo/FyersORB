@@ -279,15 +279,19 @@ class ORBStrategy:
                     signal = await self._evaluate_breakout_signal(
                         symbol, signal_type, breakout_level, opening_range, live_quote
                     )
+                    logger.info(f"Evaluating breakout signal for {symbol}: {signal}")
 
                     if signal:
                         new_signals.append(signal)
+                        logger.info(f"Appending new signal for {symbol}: {signal}")
 
             # Sort signals by confidence and execute top ones
             new_signals.sort(key=lambda x: x.confidence, reverse=True)
+            logger.info(f"Sorted signals: {new_signals}")
 
             # Execute signals up to position limit
             available_slots = self.strategy_config.max_positions - len(self.positions)
+            logger.info(f"Available slots: {available_slots}")
             for signal in new_signals[:available_slots]:
                 if validate_signal_quality(signal, self.strategy_config.min_confidence):
                     await self._execute_signal(signal)
