@@ -9,13 +9,13 @@ Uses centralized symbol configuration - no hardcoded mappings or sector limitati
 import asyncio
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from config.settings import FyersConfig, ORBStrategyConfig, TradingConfig, SignalType
 from config.websocket_config import WebSocketConfig
 from config.symbols import (
-    symbol_manager, get_orb_symbols, SymbolCategory,
-    validate_orb_symbol, convert_to_fyers_format
+    symbol_manager, get_orb_symbols,
+    validate_orb_symbol
 )
 from models.trading_models import (
     Position, ORBSignal, LiveQuote, OpenRange, TradeResult,

@@ -6,10 +6,9 @@ Provides ORB-specific indicators, volume analysis, and momentum calculations
 """
 
 import numpy as np
-import pandas as pd
 import logging
 import yfinance as yf
-from typing import Optional, Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from datetime import datetime, timedelta
 from models.trading_models import LiveQuote, OpenRange, ORBSignal
 from config.settings import SignalType, Sector
@@ -132,7 +131,7 @@ class ORBTechnicalAnalysisService:
             score += recent_trend * 0.4
 
             # 2. Volatility appropriateness (not too high, not too low)
-            volatility = np.std(price_history) / np.mean(price_history)
+            volatility = float(np.std(price_history)) / float(np.mean(price_history))
             optimal_volatility = 0.01  # 1% daily volatility is optimal
             volatility_score = 1 - abs(volatility - optimal_volatility) / optimal_volatility
             score += max(volatility_score, 0) * 0.3
@@ -405,7 +404,7 @@ class ORBTechnicalAnalysisService:
             elif opening_range.range_pct < 0.5:
                 size_score = opening_range.range_pct / 0.5
             else:  # > 2%
-                size_score = max(0, 1 - (opening_range.range_pct - 2.0) / 3.0)
+                size_score = max(0.0, 1 - (opening_range.range_pct - 2.0) / 3.0)
 
             score += size_score * 0.6
 
@@ -476,7 +475,7 @@ class ORBTechnicalAnalysisService:
 
     def validate_breakout_signal(self, symbol: str, opening_range: OpenRange,
                                  current_price: float, signal_type: SignalType,
-                                 min_confidence: float = 0.6) -> Tuple[bool, float, Dict[str, float]]:
+                                 min_confidence: float = 0.6) -> Tuple[bool, float, Dict[str, Any]]:
         """
         Validate if a breakout signal meets quality criteria
         Returns: (is_valid, confidence_score, detailed_scores)

@@ -4,7 +4,7 @@ import logging
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from config.settings import SignalType
 from config.symbols import SymbolCategory
 
@@ -324,6 +324,9 @@ def create_trade_result_from_position(position: Position, exit_price: float, exi
     else:
         gross_pnl = (position.entry_price - exit_price) * abs(position.quantity)
 
+    # Calculate holding period in minutes
+    holding_period = (exit_time - position.entry_time).total_seconds() / 60
+
     return TradeResult(
         symbol=position.symbol,
         category=position.category,
@@ -333,6 +336,7 @@ def create_trade_result_from_position(position: Position, exit_price: float, exi
         quantity=abs(position.quantity),
         entry_time=position.entry_time,
         exit_time=exit_time,
+        holding_period=holding_period,
         breakout_price=position.breakout_price,
         range_size=position.range_high - position.range_low,
         gross_pnl=gross_pnl,
