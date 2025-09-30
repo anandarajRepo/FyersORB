@@ -92,6 +92,13 @@ class ORBSymbolManager:
                 company_name="Highway Infrastructure",
                 category=SymbolCategory.SMALL_CAP
             ),
+            "SAATVIKGL": SymbolInfo(
+                display_symbol="SAATVIKGL",
+                fyers_symbol="NSE:SAATVIKGL-EQ",
+                company_name="Saatvik Green Energy",
+                category=SymbolCategory.SMALL_CAP
+            ),
+
 
             # Favourite Stocks
             "STLNETWORK": SymbolInfo(
