@@ -264,6 +264,8 @@ class ORBStrategy:
                 # Get current data
                 live_quote = self.live_quotes.get(symbol)
                 opening_range = self.opening_ranges.get(symbol)
+                # DEBUG Code
+                # opening_range = OpenRange(symbol=symbol, high=237.04, low=230.0, range_size=7.039999999999992, range_pct=3.060869565217388, volume=7892377, start_time=datetime(2025, 9, 30, 9, 15), end_time=datetime(2025, 9, 30, 9, 30))
 
                 if not live_quote or not opening_range:
                     continue
@@ -272,6 +274,8 @@ class ORBStrategy:
                 is_breakout, signal_type, breakout_level = self.data_service.is_breakout_detected(
                     symbol, live_quote.ltp
                 )
+                # DEBUG Code
+                # is_breakout, signal_type, breakout_level = True, SignalType.LONG, opening_range.high
 
                 logger.info(f"Breakout detected for {symbol}: {is_breakout}, {signal_type}, {breakout_level}, {opening_range}, {live_quote}")
 
@@ -299,17 +303,19 @@ class ORBStrategy:
         except Exception as e:
             logger.error(f"Error scanning for breakouts: {e}")
 
-    async def _evaluate_breakout_signal(self, symbol: str, signal_type: str,
+    async def _evaluate_breakout_signal(self, symbol: str, signal_type: SignalType,
                                         breakout_level: float, opening_range: OpenRange,
                                         live_quote: LiveQuote) -> Optional[ORBSignal]:
         """Evaluate a potential breakout signal"""
         try:
-            signal_type_enum = SignalType.LONG if signal_type == 'LONG' else SignalType.SHORT
+            signal_type_enum = SignalType.LONG if signal_type.LONG else SignalType.SHORT
 
             # Validate the breakout
             is_valid, confidence, quality_scores = self.analysis_service.validate_breakout_signal(
                 symbol, opening_range, live_quote.ltp, signal_type_enum, self.strategy_config.min_confidence
             )
+
+            logger.info(f"Breakout signal validation: is_valid: {is_valid}, confidence: {confidence}, quality_scores: {quality_scores}")
 
             if not is_valid:
                 return None

@@ -503,6 +503,8 @@ class ORBTechnicalAnalysisService:
             # Check minimum confidence threshold
             is_valid = overall_confidence >= min_confidence
 
+            logger.info(f"is_valid: {is_valid}, overall_confidence: {overall_confidence}, minimum_confidence: {min_confidence}, quality_scores: {quality_scores}")
+
             return is_valid, overall_confidence, quality_scores
 
         except Exception as e:
