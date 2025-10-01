@@ -271,15 +271,24 @@ class ORBStrategy:
                     continue
 
                 # Check for breakouts
-                is_breakout, signal_type, breakout_level = self.data_service.is_breakout_detected(
+                is_breakout, signal_type_str, breakout_level = self.data_service.is_breakout_detected(
                     symbol, live_quote.ltp
                 )
                 # DEBUG Code
                 # is_breakout, signal_type, breakout_level = True, SignalType.LONG, opening_range.high
 
-                logger.info(f"Breakout detected for {symbol}: {is_breakout}, {signal_type}, {breakout_level}, {opening_range}, {live_quote}")
+                logger.info(f"Breakout detected for {symbol}: {is_breakout}, {signal_type_str}, {breakout_level}, {opening_range}, {live_quote}")
 
-                if is_breakout:
+                if is_breakout and signal_type_str:
+                    # Convert string to SignalType enum
+                    if signal_type_str == 'LONG':
+                        signal_type = SignalType.LONG
+                    elif signal_type_str == 'SHORT':
+                        signal_type = SignalType.SHORT
+                    else:
+                        logger.warning(f"Unknown signal type: {signal_type_str} for {symbol}")
+                        continue
+
                     signal = await self._evaluate_breakout_signal(
                         symbol, signal_type, breakout_level, opening_range, live_quote
                     )
@@ -308,7 +317,8 @@ class ORBStrategy:
                                         live_quote: LiveQuote) -> Optional[ORBSignal]:
         """Evaluate a potential breakout signal"""
         try:
-            signal_type_enum = SignalType.LONG if signal_type.LONG else SignalType.SHORT
+            # signal_type is already a SignalType enum
+            signal_type_enum: SignalType = signal_type
 
             # Validate the breakout
             is_valid, confidence, quality_scores = self.analysis_service.validate_breakout_signal(
