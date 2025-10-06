@@ -387,6 +387,9 @@ class ORBTechnicalAnalysisService:
             overall_score = sum(scores[key] * weights[key] for key in weights if key in scores)
             scores['overall_score'] = overall_score
 
+            logger.info(
+                f"Breakout quality scores for {symbol}: {scores}, volume_score: {volume_ratio}, momentum_score: {momentum_score}, range_quality: {range_quality}, rsi_score: {rsi_score}, time_score: {time_score}, overall_score: {overall_score}")
+
             return scores
 
         except Exception as e:
