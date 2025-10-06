@@ -275,7 +275,7 @@ class ORBStrategy:
                     symbol, live_quote.ltp
                 )
                 # DEBUG Code
-                # is_breakout, signal_type, breakout_level = True, SignalType.LONG, opening_range.high
+                # is_breakout, signal_type_str, breakout_level = True, 'LONG', opening_range.high
 
                 logger.info(f"Breakout detected for {symbol}: {is_breakout}, {signal_type_str}, {breakout_level}, {opening_range}, {live_quote}")
 
