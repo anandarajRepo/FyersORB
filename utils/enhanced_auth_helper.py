@@ -567,18 +567,30 @@ def setup_auth_only():
         existing_secret_key = os.environ.get('FYERS_SECRET_KEY')
 
         if existing_client_id and existing_secret_key:
-            print(" Found existing API credentials in environment")
+            print("Found existing API credentials in environment")
+            print("This will perform FULL re-authentication (not refresh)")
+
+            confirm = input("\nProceed with full re-authentication? (y/n) [y]: ").strip().lower()
+            if confirm == 'n':
+                print("Authentication setup cancelled")
+                return False
 
             auth_manager = FyersAuthManager()
-            access_token = auth_manager.get_valid_access_token()
+            auth_manager.client_id = existing_client_id
+            auth_manager.secret_key = existing_secret_key
+
+            # Skip refresh attempt - go directly to full authentication
+            print("\nStarting full authentication flow...")
+            access_token = auth_manager.setup_full_authentication()
 
             if access_token:
-                print(" Authentication successful using existing/refreshed tokens!")
+                print("\nAuthentication successful!")
                 return True
             else:
-                print("️  Existing credentials need re-authentication")
+                print("\nAuthentication setup failed!")
+                return False
 
-        # Manual setup if no credentials or auth failed
+        # Manual setup if no credentials exist
         print("\n" + "=" * 50)
         print("MANUAL CREDENTIAL SETUP")
         print("=" * 50)
@@ -587,18 +599,18 @@ def setup_auth_only():
         print("(Get these from: https://myapi.fyers.in/dashboard)")
 
         while True:
-            client_id = input("\n Enter your Fyers Client ID: ").strip()
+            client_id = input("\nEnter your Fyers Client ID: ").strip()
             if client_id:
                 break
-            print(" Client ID cannot be empty")
+            print("Client ID cannot be empty")
 
         while True:
-            secret_key = input(" Enter your Fyers Secret Key: ").strip()
+            secret_key = input("Enter your Fyers Secret Key: ").strip()
             if secret_key:
                 break
-            print(" Secret Key cannot be empty")
+            print("Secret Key cannot be empty")
 
-        redirect_uri = input(" Enter Redirect URI (press Enter for default): ").strip()
+        redirect_uri = input("Enter Redirect URI (press Enter for default): ").strip()
         if not redirect_uri:
             redirect_uri = "https://trade.fyers.in/api-login/redirect-to-app"
 
@@ -617,18 +629,18 @@ def setup_auth_only():
         access_token = auth_manager.setup_full_authentication()
 
         if access_token:
-            print("\n Enhanced authentication setup completed!")
-            print(" Refresh token and PIN have been configured for automatic renewal")
+            print("\nEnhanced authentication setup completed!")
+            print("✓ Refresh token and PIN have been configured for automatic renewal")
             return True
         else:
-            print("\n Authentication setup failed!")
+            print("\nAuthentication setup failed!")
             return False
 
     except KeyboardInterrupt:
-        print("\n\n Authentication setup cancelled by user")
+        print("\n\nAuthentication setup cancelled by user")
         return False
     except Exception as e:
-        print(f"\n Authentication setup error: {e}")
+        print(f"\nAuthentication setup error: {e}")
         logger.exception("Setup authentication error")
         return False
 
