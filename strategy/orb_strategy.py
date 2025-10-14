@@ -1,15 +1,16 @@
 # strategy/orb_strategy.py
 
 """
-Open Range Breakout (ORB) Strategy Implementation - Updated with Centralized Symbol Management
+Open Range Breakout (ORB) Strategy Implementation - Event-Based with State Tracking
 Complete strategy with WebSocket integration, risk management, and performance tracking
-Uses centralized symbol configuration - no hardcoded mappings or sector limitations
+Uses centralized symbol configuration and transition detection for efficient signal generation
 """
 
 import asyncio
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from datetime import datetime
+from enum import Enum
 
 from config.settings import FyersConfig, ORBStrategyConfig, TradingConfig, SignalType
 from config.websocket_config import WebSocketConfig
@@ -30,8 +31,16 @@ from services.market_timing_service import MarketTimingService
 logger = logging.getLogger(__name__)
 
 
+# NEW: Breakout state enumeration
+class BreakoutState(Enum):
+    """Enumeration for symbol breakout states"""
+    NO_BREAKOUT = "NO_BREAKOUT"  # Price within range
+    UPSIDE_BREAKOUT = "UPSIDE_BREAKOUT"  # Price broken above range
+    DOWNSIDE_BREAKOUT = "DOWNSIDE_BREAKOUT"  # Price broken below range
+
+
 class ORBStrategy:
-    """Complete Open Range Breakout Strategy with Centralized Symbol Management"""
+    """Complete Open Range Breakout Strategy with Event-Based Transition Detection"""
 
     def __init__(self, fyers_config: FyersConfig, strategy_config: ORBStrategyConfig,
                  trading_config: TradingConfig, ws_config: WebSocketConfig):
@@ -67,13 +76,27 @@ class ORBStrategy:
         self.live_quotes: Dict[str, LiveQuote] = {}
         self.opening_ranges: Dict[str, OpenRange] = {}
 
+        # ===== NEW: State tracking for breakout transitions =====
+        # Track breakout state for each symbol
+        self.breakout_states: Dict[str, BreakoutState] = {}
+
+        # Track symbols that have new breakout transitions (event queue)
+        self.pending_breakout_symbols: Set[str] = set()
+
+        # Initialize all symbols to NO_BREAKOUT state
+        for symbol in self.trading_symbols:
+            self.breakout_states[symbol] = BreakoutState.NO_BREAKOUT
+
+        logger.info(f"Initialized breakout state tracking for {len(self.trading_symbols)} symbols")
+        # ========================================================
+
         # Add data callback
         self.data_service.add_data_callback(self._on_live_data_update)
 
     async def initialize(self) -> bool:
         """Initialize strategy and data connections"""
         try:
-            logger.info("Initializing ORB Strategy with centralized symbol management...")
+            logger.info("Initializing ORB Strategy with event-based transition detection...")
 
             # Connect to data service
             if not self.data_service.connect():
@@ -94,10 +117,10 @@ class ORBStrategy:
             logger.info(f"  Total symbols: {len(symbols)}")
             logger.info(f"  Max positions: {self.strategy_config.max_positions}")
             logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
+            logger.info(f"  Signal processing: Event-based (transition detection)")
             category_dist = symbol_manager.get_category_distribution()
             readable_categories = {cat.value: count for cat, count in category_dist.items()}
             logger.info(f"  Symbol categories: {readable_categories}")
-            # logger.info(f"  Symbol categories: {symbol_manager.get_category_distribution()}")
             logger.info("  Position allocation: Based on signal quality only (no category limits)")
 
             return True
@@ -107,7 +130,10 @@ class ORBStrategy:
             return False
 
     def _on_live_data_update(self, symbol: str, live_quote: LiveQuote):
-        """Handle real-time data updates"""
+        """
+        Handle real-time data updates with transition detection
+        NEW: Detects breakout state transitions and queues symbols for signal generation
+        """
         try:
             # Validate symbol using centralized manager
             if not validate_orb_symbol(symbol):
@@ -121,6 +147,12 @@ class ORBStrategy:
             if symbol in self.positions:
                 self._update_position_tracking(symbol, live_quote)
 
+            # ===== NEW: Transition detection logic =====
+            # Only detect transitions after ORB period completes
+            if self.orb_completed and symbol in self.opening_ranges:
+                self._detect_breakout_transition(symbol, live_quote)
+            # ===========================================
+
             # Log significant movements during ORB period
             if self._is_orb_period():
                 logger.debug(f"ORB Live: {symbol} - Rs.{live_quote.ltp:.2f} "
@@ -128,6 +160,56 @@ class ORBStrategy:
 
         except Exception as e:
             logger.error(f"Error handling live data update for {symbol}: {e}")
+
+    def _detect_breakout_transition(self, symbol: str, live_quote: LiveQuote):
+        """
+        NEW: Detect if a symbol transitions between breakout states
+        Only queues symbols when a NEW transition occurs (not already broken out)
+        """
+        try:
+            # Skip if we already have a position in this symbol
+            if symbol in self.positions:
+                return
+
+            # Get current breakout state
+            current_state = self.breakout_states.get(symbol, BreakoutState.NO_BREAKOUT)
+
+            # Get opening range
+            opening_range = self.opening_ranges.get(symbol)
+            if not opening_range:
+                return
+
+            # Determine new state based on current price
+            current_price = live_quote.ltp
+            new_state = BreakoutState.NO_BREAKOUT
+
+            if current_price > opening_range.high:
+                new_state = BreakoutState.UPSIDE_BREAKOUT
+            elif current_price < opening_range.low:
+                new_state = BreakoutState.DOWNSIDE_BREAKOUT
+            else:
+                new_state = BreakoutState.NO_BREAKOUT
+
+            # Check for state transition
+            if new_state != current_state:
+                # State changed - this is a transition event
+                logger.info(f"Breakout Transition: {symbol} {current_state.value} → {new_state.value} "
+                            f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
+
+                # Update state
+                self.breakout_states[symbol] = new_state
+
+                # Queue symbol for signal generation if it's a breakout transition
+                if new_state in [BreakoutState.UPSIDE_BREAKOUT, BreakoutState.DOWNSIDE_BREAKOUT]:
+                    self.pending_breakout_symbols.add(symbol)
+                    logger.info(f"Queued {symbol} for signal evaluation (new {new_state.value})")
+                elif new_state == BreakoutState.NO_BREAKOUT:
+                    # Price came back into range - remove from pending queue
+                    self.pending_breakout_symbols.discard(symbol)
+                    logger.debug(f"{symbol} returned to range, removed from queue")
+
+        except Exception as e:
+            logger.error(f"Error detecting breakout transition for {symbol}: {e}")
 
     def _update_position_tracking(self, symbol: str, live_quote: LiveQuote):
         """Update position tracking with current price"""
@@ -176,7 +258,7 @@ class ORBStrategy:
             if not self.timing_service.is_trading_time():
                 return
 
-            # NEW: Check if ORB period just ended and mark as completed
+            # Check if ORB period just ended and mark as completed
             if not self.orb_completed and not self._is_orb_period():
                 now = datetime.now()
                 orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
@@ -185,6 +267,9 @@ class ORBStrategy:
                     self.opening_ranges = self.data_service.get_all_opening_ranges()
                     logger.info(f"ORB period completed - {len(self.opening_ranges)} ranges finalized")
 
+                    # NEW: Initialize breakout states when ORB completes
+                    self._initialize_breakout_states()
+
             # Monitor existing positions
             await self._monitor_positions()
 
@@ -192,17 +277,58 @@ class ORBStrategy:
             if self._is_orb_period():
                 await self._process_orb_period()
             elif self._should_generate_signals():
-                logger.info(f"Generating new signals: {self._should_generate_signals()}")
+                # NEW: Only scan symbols with pending breakout transitions
                 await self._scan_for_breakouts()
 
             # Update strategy metrics
             self._update_strategy_metrics()
 
-            # Log current status
-            self._log_strategy_status()
+            # Log current status (less frequent to reduce noise)
+            if datetime.now().minute % 5 == 0:  # Log every 5 minutes
+                self._log_strategy_status()
 
         except Exception as e:
             logger.error(f"Error in strategy cycle: {e}")
+
+    def _initialize_breakout_states(self):
+        """
+        NEW: Initialize breakout states for all symbols when ORB period completes
+        Sets initial state based on current price relative to opening range
+        """
+        try:
+            logger.info("Initializing breakout states after ORB completion...")
+
+            initialized_count = 0
+            for symbol in self.trading_symbols:
+                opening_range = self.opening_ranges.get(symbol)
+                live_quote = self.live_quotes.get(symbol)
+
+                if opening_range and live_quote:
+                    current_price = live_quote.ltp
+
+                    # Determine initial state
+                    if current_price > opening_range.high:
+                        initial_state = BreakoutState.UPSIDE_BREAKOUT
+                        # If already broken out at ORB end, queue for evaluation
+                        self.pending_breakout_symbols.add(symbol)
+                    elif current_price < opening_range.low:
+                        initial_state = BreakoutState.DOWNSIDE_BREAKOUT
+                        # If already broken out at ORB end, queue for evaluation
+                        self.pending_breakout_symbols.add(symbol)
+                    else:
+                        initial_state = BreakoutState.NO_BREAKOUT
+
+                    self.breakout_states[symbol] = initial_state
+                    initialized_count += 1
+
+                    if initial_state != BreakoutState.NO_BREAKOUT:
+                        logger.info(f"Initial breakout detected: {symbol} - {initial_state.value} "
+                                    f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
+
+            logger.info(f"Initialized {initialized_count} symbols, {len(self.pending_breakout_symbols)} already broken out")
+
+        except Exception as e:
+            logger.error(f"Error initializing breakout states: {e}")
 
     def _is_orb_period(self) -> bool:
         """Check if we're currently in ORB period"""
@@ -237,74 +363,88 @@ class ORBStrategy:
             # Update opening ranges from data service
             self.opening_ranges = self.data_service.get_all_opening_ranges()
 
-            # Log ORB progress
-            completed_ranges = len([r for r in self.opening_ranges.values() if r.range_size > 0])
-            logger.debug(f"ORB Progress: {completed_ranges}/{len(self.trading_symbols)} ranges calculated")
+            # Log ORB progress (less frequently)
+            if datetime.now().second % 30 == 0:  # Log every 30 seconds
+                completed_ranges = len([r for r in self.opening_ranges.values() if r.range_size > 0])
+                logger.debug(f"ORB Progress: {completed_ranges}/{len(self.trading_symbols)} ranges calculated")
 
         except Exception as e:
             logger.error(f"Error processing ORB period: {e}")
 
     async def _scan_for_breakouts(self):
-        """Scan for breakout signals after ORB period"""
+        """
+        MODIFIED: Scan for breakout signals - now only processes pending transitions
+        This is the key change: instead of checking all symbols repeatedly,
+        we only check symbols that have had a state transition
+        """
         try:
+            # NEW: Check if there are any pending breakout symbols
+            if not self.pending_breakout_symbols:
+                # No new transitions - nothing to do
+                return
+
+            logger.info(f"Processing {len(self.pending_breakout_symbols)} symbols with new breakout transitions")
+
             # Mark ORB as completed if not already done
             if not self.orb_completed:
                 self.orb_completed = True
                 self.opening_ranges = self.data_service.get_all_opening_ranges()
                 logger.info(f"ORB period completed - {len(self.opening_ranges)} ranges calculated")
 
-            # Look for breakout signals
+            # NEW: Process only symbols with pending breakout transitions
             new_signals = []
+            symbols_to_process = list(self.pending_breakout_symbols)  # Create a copy to iterate
 
-            for symbol in self.trading_symbols:
+            for symbol in symbols_to_process:
                 # Skip if we already have a position in this symbol
                 if symbol in self.positions:
+                    self.pending_breakout_symbols.discard(symbol)
                     continue
 
                 # Get current data
                 live_quote = self.live_quotes.get(symbol)
                 opening_range = self.opening_ranges.get(symbol)
-                # DEBUG Code
-                # opening_range = OpenRange(symbol=symbol, high=237.04, low=230.0, range_size=7.039999999999992, range_pct=3.060869565217388, volume=7892377, start_time=datetime(2025, 9, 30, 9, 15), end_time=datetime(2025, 9, 30, 9, 30))
+                breakout_state = self.breakout_states.get(symbol)
 
-                if not live_quote or not opening_range:
+                if not live_quote or not opening_range or breakout_state == BreakoutState.NO_BREAKOUT:
+                    # No longer in breakout state or missing data
+                    self.pending_breakout_symbols.discard(symbol)
                     continue
 
-                # Check for breakouts
-                is_breakout, signal_type_str, breakout_level = self.data_service.is_breakout_detected(
-                    symbol, live_quote.ltp
+                # Determine signal type from breakout state
+                if breakout_state == BreakoutState.UPSIDE_BREAKOUT:
+                    signal_type = SignalType.LONG
+                    breakout_level = opening_range.high
+                elif breakout_state == BreakoutState.DOWNSIDE_BREAKOUT:
+                    signal_type = SignalType.SHORT
+                    breakout_level = opening_range.low
+                else:
+                    # Should not happen, but handle it
+                    self.pending_breakout_symbols.discard(symbol)
+                    continue
+
+                # Evaluate the breakout signal
+                signal = await self._evaluate_breakout_signal(
+                    symbol, signal_type, breakout_level, opening_range, live_quote
                 )
-                # DEBUG Code
-                # is_breakout, signal_type_str, breakout_level = True, 'LONG', opening_range.high
 
-                logger.info(f"Breakout detected for {symbol}: {is_breakout}, {signal_type_str}, {breakout_level}, {opening_range}, {live_quote}")
+                if signal:
+                    new_signals.append(signal)
+                    logger.info(f"Signal generated for {symbol}: {signal_type.value}")
+                else:
+                    logger.debug(f"Signal rejected for {symbol} (failed validation)")
 
-                if is_breakout and signal_type_str:
-                    # Convert string to SignalType enum
-                    if signal_type_str == 'LONG':
-                        signal_type = SignalType.LONG
-                    elif signal_type_str == 'SHORT':
-                        signal_type = SignalType.SHORT
-                    else:
-                        logger.warning(f"Unknown signal type: {signal_type_str} for {symbol}")
-                        continue
-
-                    signal = await self._evaluate_breakout_signal(
-                        symbol, signal_type, breakout_level, opening_range, live_quote
-                    )
-                    logger.info(f"Evaluating breakout signal for {symbol}: {signal}")
-
-                    if signal:
-                        new_signals.append(signal)
-                        logger.info(f"Appending new signal for {symbol}: {signal}")
+                # Remove from pending queue after processing (whether signal generated or not)
+                self.pending_breakout_symbols.discard(symbol)
 
             # Sort signals by confidence and execute top ones
             new_signals.sort(key=lambda x: x.confidence, reverse=True)
-            logger.info(f"Sorted signals: {new_signals}")
+
+            if new_signals:
+                logger.info(f"📊 Generated {len(new_signals)} valid signals from transition events")
 
             # Execute signals up to position limit
             available_slots = self.strategy_config.max_positions - len(self.positions)
-            logger.info(f"Available slots: {available_slots}")
             for signal in new_signals[:available_slots]:
                 if validate_signal_quality(signal, self.strategy_config.min_confidence):
                     await self._execute_signal(signal)
@@ -317,15 +457,12 @@ class ORBStrategy:
                                         live_quote: LiveQuote) -> Optional[ORBSignal]:
         """Evaluate a potential breakout signal"""
         try:
-            # signal_type is already a SignalType enum
-            signal_type_enum: SignalType = signal_type
-
             # Validate the breakout
             is_valid, confidence, quality_scores = self.analysis_service.validate_breakout_signal(
-                symbol, opening_range, live_quote.ltp, signal_type_enum, self.strategy_config.min_confidence
+                symbol, opening_range, live_quote.ltp, signal_type, self.strategy_config.min_confidence
             )
 
-            logger.info(f"Breakout signal validation: is_valid: {is_valid}, confidence: {confidence}, quality_scores: {quality_scores}")
+            logger.debug(f"Signal validation for {symbol}: valid={is_valid}, confidence={confidence:.2f}")
 
             if not is_valid:
                 return None
@@ -333,10 +470,10 @@ class ORBStrategy:
             # Calculate entry parameters
             entry_price = live_quote.ltp
             stop_loss = self.analysis_service.calculate_stop_loss_level(
-                signal_type_enum, breakout_level, opening_range, self.strategy_config.stop_loss_pct
+                signal_type, breakout_level, opening_range, self.strategy_config.stop_loss_pct
             )
             target_price = self.analysis_service.calculate_target_price(
-                signal_type_enum, entry_price, stop_loss, self.strategy_config.target_multiplier
+                signal_type, entry_price, stop_loss, self.strategy_config.target_multiplier
             )
 
             # Calculate risk metrics
@@ -346,7 +483,7 @@ class ORBStrategy:
             # Create signal using centralized symbol management
             signal = create_orb_signal_from_symbol(
                 symbol=symbol,
-                signal_type=signal_type_enum,
+                signal_type=signal_type,
                 breakout_price=breakout_level,
                 range_high=opening_range.high,
                 range_low=opening_range.low,
@@ -355,7 +492,7 @@ class ORBStrategy:
                 stop_loss=stop_loss,
                 target_price=target_price,
                 confidence=confidence,
-                volume_ratio=quality_scores.get('volume_score', 0.0) * 3,  # Convert back to ratio
+                volume_ratio=quality_scores.get('volume_score', 0.0) * 3,
                 breakout_volume=live_quote.volume,
                 momentum_score=quality_scores.get('momentum_score', 0.0),
                 timestamp=datetime.now(),
@@ -368,7 +505,7 @@ class ORBStrategy:
             symbol_info = symbol_manager.get_symbol_info(symbol)
             category = symbol_info.category.value if symbol_info else "UNKNOWN"
 
-            logger.info(f"ORB Signal: {symbol} ({category}) {signal_type_enum.value} - "
+            logger.info(f"ORB Signal: {symbol} ({category}) {signal_type.value} - "
                         f"Entry: Rs.{entry_price:.2f}, SL: Rs.{stop_loss:.2f}, "
                         f"Target: Rs.{target_price:.2f}, Confidence: {confidence:.2f}")
 
@@ -523,7 +660,7 @@ class ORBStrategy:
             # Remove position
             del self.positions[symbol]
 
-            logger.info(f"Position Closed: {symbol} - {reason} - P&L: Rs.{trade_result.net_pnl:.2f}")
+            logger.info(f"🔒 Position Closed: {symbol} - {reason} - P&L: Rs.{trade_result.net_pnl:.2f}")
 
             # In real implementation, place closing orders here
             # await self._place_exit_order(position, current_price)
@@ -576,11 +713,19 @@ class ORBStrategy:
             long_positions = sum(1 for p in self.positions.values() if p.signal_type == SignalType.LONG)
             short_positions = len(self.positions) - long_positions
 
-            # Count positions by category (for informational purposes)
+            # Count positions by category
             category_summary = get_category_summary(list(self.positions.values()))
 
             # Calculate portfolio risk
             risk_metrics = calculate_portfolio_risk(list(self.positions.values()), self.strategy_config.portfolio_value)
+
+            # NEW: Count breakout states
+            upside_breakouts = sum(1 for state in self.breakout_states.values()
+                                   if state == BreakoutState.UPSIDE_BREAKOUT)
+            downside_breakouts = sum(1 for state in self.breakout_states.values()
+                                     if state == BreakoutState.DOWNSIDE_BREAKOUT)
+            in_range = sum(1 for state in self.breakout_states.values()
+                           if state == BreakoutState.NO_BREAKOUT)
 
             logger.info(f"ORB Strategy Status:")
             logger.info(f"  Positions: {len(self.positions)}/{self.strategy_config.max_positions} "
@@ -591,6 +736,8 @@ class ORBStrategy:
             logger.info(f"  ORB Completed: {self.orb_completed}")
             logger.info(f"  Signals Today: {len(self.signals_generated_today)}")
             logger.info(f"  Portfolio Risk: {risk_metrics['risk_percentage']:.1f}%")
+            logger.info(f"  Breakout States: {upside_breakouts} | {downside_breakouts} | {in_range}")
+            logger.info(f"  Pending Transitions: {len(self.pending_breakout_symbols)}")
 
             if category_summary:
                 category_info = ", ".join([f"{cat.value}: {info['count']}"
@@ -600,8 +747,41 @@ class ORBStrategy:
         except Exception as e:
             logger.error(f"Error logging strategy status: {e}")
 
+    def reset_daily_data(self):
+        """
+        MODIFIED: Reset daily data for new trading day with state tracking
+        NEW: Clears breakout states and pending transitions
+        """
+        try:
+            logger.info("Resetting daily ORB strategy data...")
+
+            # Original resets
+            self.orb_completed = False
+            self.signals_generated_today.clear()
+            self.daily_pnl = 0.0
+            self.opening_ranges.clear()
+
+            # NEW: Reset breakout state tracking
+            for symbol in self.trading_symbols:
+                self.breakout_states[symbol] = BreakoutState.NO_BREAKOUT
+
+            # NEW: Clear pending breakout queue
+            self.pending_breakout_symbols.clear()
+
+            logger.info(f"  Breakout states reset: {len(self.breakout_states)} symbols")
+            logger.info(f"  Pending transitions cleared")
+
+            # Reset data service daily data
+            if hasattr(self.data_service, 'reset_daily_data'):
+                self.data_service.reset_daily_data()
+
+            logger.info("Daily ORB strategy data reset completed")
+
+        except Exception as e:
+            logger.error(f"Error resetting daily data: {e}")
+
     def get_performance_summary(self) -> Dict:
-        """Get comprehensive performance summary"""
+        """Get comprehensive performance summary with state tracking info"""
         try:
             total_unrealized = sum(pos.unrealized_pnl for pos in self.positions.values())
 
@@ -641,7 +821,8 @@ class ORBStrategy:
                     'range_low': orb_range.low,
                     'range_size': orb_range.range_size,
                     'range_pct': orb_range.range_pct,
-                    'volume': orb_range.volume
+                    'volume': orb_range.volume,
+                    'breakout_state': self.breakout_states.get(symbol, BreakoutState.NO_BREAKOUT).value
                 })
 
             # Portfolio risk analysis
@@ -650,8 +831,17 @@ class ORBStrategy:
             # Category distribution
             category_summary = get_category_summary(list(self.positions.values()))
 
+            # NEW: Breakout state statistics
+            breakout_stats = {
+                'upside_breakouts': sum(1 for s in self.breakout_states.values() if s == BreakoutState.UPSIDE_BREAKOUT),
+                'downside_breakouts': sum(1 for s in self.breakout_states.values() if s == BreakoutState.DOWNSIDE_BREAKOUT),
+                'in_range': sum(1 for s in self.breakout_states.values() if s == BreakoutState.NO_BREAKOUT),
+                'pending_transitions': len(self.pending_breakout_symbols),
+                'pending_symbols': list(self.pending_breakout_symbols)
+            }
+
             return {
-                'strategy_name': 'Open Range Breakout (ORB) - Centralized Symbol Management',
+                'strategy_name': 'Open Range Breakout (ORB) - Event-Based Transition Detection',
                 'timestamp': datetime.now().isoformat(),
                 'total_pnl': self.metrics.total_pnl,
                 'daily_pnl': self.daily_pnl,
@@ -664,9 +854,11 @@ class ORBStrategy:
                 'signals_generated_today': len(self.signals_generated_today),
                 'websocket_connected': self.data_service.is_connected,
                 'using_fallback': getattr(self.data_service, 'using_fallback', False),
+                'signal_processing': 'Event-Based (Transition Detection)',
+                'breakout_statistics': breakout_stats,  # NEW
                 'symbol_management': {
                     'total_universe_size': symbol_manager.get_trading_universe_size(),
-                    'category_distribution': symbol_manager.get_category_distribution(),
+                    'category_distribution': {cat.value: count for cat, count in symbol_manager.get_category_distribution().items()},
                     'centralized_management': True,
                     'no_category_limits': True
                 },
@@ -776,27 +968,11 @@ class ORBStrategy:
             logger.error(f"Error validating trading universe: {e}")
             return {'error': str(e), 'valid': False}
 
-    def reset_daily_data(self):
-        """Reset daily data for new trading day"""
-        try:
-            self.orb_completed = False
-            self.signals_generated_today.clear()
-            self.daily_pnl = 0.0
-            self.opening_ranges.clear()
-
-            # Reset data service daily data
-            if hasattr(self.data_service, 'reset_daily_data'):
-                self.data_service.reset_daily_data()
-
-            logger.info("Daily ORB strategy data reset completed")
-
-        except Exception as e:
-            logger.error(f"Error resetting daily data: {e}")
-
     async def run(self):
         """Main strategy execution loop"""
-        logger.info("Starting Open Range Breakout Strategy with Centralized Symbol Management")
+        logger.info("Starting Open Range Breakout Strategy with Event-Based Transition Detection")
         logger.info(f"Trading Universe: {symbol_manager.get_trading_universe_size()} symbols")
+        logger.info(f"Signal Processing: Event-driven (no repeated polling)")
 
         if not await self.initialize():
             logger.error("Strategy initialization failed")
@@ -842,7 +1018,8 @@ class ORBStrategy:
                 'is_connected': self.data_service.is_connected,
                 'subscribed_symbols_count': len(getattr(self.data_service, 'subscribed_symbols', [])),
                 'symbol_management': 'Centralized Symbol Manager',
-                'symbol_validation': 'Automatic via centralized manager'
+                'symbol_validation': 'Automatic via centralized manager',
+                'signal_processing': 'Event-Based Transition Detection'
             }
 
             # Add service-specific info if available
