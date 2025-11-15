@@ -52,7 +52,7 @@ class ORBStrategyConfig:
     trailing_stop_pct: float = 0.5  # Trailing stop adjustment
 
     # Signal filtering
-    min_confidence: float = 0.52
+    min_confidence: float = 0.5
     min_volume_ratio: float = 1.5  # Current vs average volume
     max_gap_size: float = 3.0  # Max overnight gap to consider
 
