@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, List
 from config.settings import SignalType
-from config.symbols import SymbolCategory
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +51,7 @@ class OpenRange:
 class ORBSignal:
     """Open Range Breakout Signal - Updated to use SymbolCategory instead of Sector"""
     symbol: str
-    category: SymbolCategory  # Changed from sector to category
+    category: str
     signal_type: SignalType  # LONG or SHORT
     breakout_price: float
     range_high: float
@@ -88,7 +87,7 @@ class ORBSignal:
 class Position:
     """Trading position with ORB-specific features - Updated to use SymbolCategory"""
     symbol: str
-    category: SymbolCategory  # Changed from sector to category
+    category: str
     signal_type: SignalType
 
     # Position details
@@ -158,7 +157,7 @@ class Position:
 class TradeResult:
     """Completed trade result - Updated to use SymbolCategory"""
     symbol: str
-    category: SymbolCategory  # Changed from sector to category
+    category: str
     signal_type: SignalType
 
     # Trade details
@@ -285,11 +284,9 @@ def create_orb_signal_from_symbol(symbol: str, signal_type: SignalType, **kwargs
     from config.symbols import symbol_manager
 
     symbol_info = symbol_manager.get_symbol_info(symbol)
-    category = symbol_info.category if symbol_info else SymbolCategory.LARGE_CAP
 
     return ORBSignal(
         symbol=symbol,
-        category=category,
         signal_type=signal_type,
         **kwargs
     )
@@ -346,7 +343,7 @@ def create_trade_result_from_position(position: Position, exit_price: float, exi
     )
 
 
-def get_category_summary(positions: List[Position]) -> Dict[SymbolCategory, Dict]:
+def get_category_summary(positions: List[Position]) -> Dict[str, Dict]:
     """Get summary of positions by category"""
     category_summary = {}
 

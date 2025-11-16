@@ -23,8 +23,6 @@ from .websocket_config import (
 # Import centralized symbol management
 from .symbols import (
     symbol_manager,
-    SymbolCategory,
-    SymbolInfo,
     get_orb_symbols,
     get_orb_fyers_symbols,
     convert_to_fyers_format,
@@ -43,7 +41,7 @@ __all__ = [
     "ORBStrategyConfig",
     "TradingConfig",
 
-    # Enums (removed Sector enum)
+    # Enums
     "SignalType",
 
     # WebSocket configuration
@@ -55,8 +53,6 @@ __all__ = [
 
     # Symbol management
     "symbol_manager",
-    "SymbolCategory",
-    "SymbolInfo",
     "get_orb_symbols",
     "get_orb_fyers_symbols",
     "convert_to_fyers_format",
@@ -119,7 +115,7 @@ def get_production_config():
     }
 
 
-# Validation functions (updated to remove Sector references)
+# Validation functions
 def validate_fyers_config(config: FyersConfig) -> bool:
     """Validate Fyers configuration"""
     if not config.client_id:
@@ -144,7 +140,7 @@ def validate_strategy_config(config: ORBStrategyConfig) -> bool:
     return True
 
 
-# Configuration factory (updated)
+# Configuration factory
 class ConfigFactory:
     """Factory class for creating different configuration sets"""
 
@@ -193,7 +189,6 @@ def get_orb_trading_universe():
         'total_symbols': symbol_manager.get_trading_universe_size(),
         'symbols': get_orb_symbols(),
         'fyers_symbols': get_orb_fyers_symbols(),
-        'category_distribution': symbol_manager.get_category_distribution(),
         'sample_mappings': {
             symbol: convert_to_fyers_format(symbol)
             for symbol in get_orb_symbols()[:5]

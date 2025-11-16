@@ -32,7 +32,7 @@ from .trading_models import (
 from datetime import datetime
 from typing import List, Dict, Optional
 from config.settings import SignalType
-from config.symbols import SymbolCategory, symbol_manager
+from config.symbols import symbol_manager
 
 __version__ = "2.0.0"
 __author__ = "ORB Trading Strategy Team"

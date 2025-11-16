@@ -118,9 +118,6 @@ class ORBStrategy:
             logger.info(f"  Max positions: {self.strategy_config.max_positions}")
             logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
             logger.info(f"  Signal processing: Event-based (transition detection)")
-            category_dist = symbol_manager.get_category_distribution()
-            readable_categories = {cat.value: count for cat, count in category_dist.items()}
-            logger.info(f"  Symbol categories: {readable_categories}")
             logger.info("  Position allocation: Based on signal quality only (no category limits)")
 
             return True
@@ -858,7 +855,6 @@ class ORBStrategy:
                 'breakout_statistics': breakout_stats,  # NEW
                 'symbol_management': {
                     'total_universe_size': symbol_manager.get_trading_universe_size(),
-                    'category_distribution': {cat.value: count for cat, count in symbol_manager.get_category_distribution().items()},
                     'centralized_management': True,
                     'no_category_limits': True
                 },
