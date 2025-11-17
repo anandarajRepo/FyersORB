@@ -25,6 +25,16 @@ class ORBSymbolManager:
             "REGAAL": "NSE:REGAAL-EQ",
             "HILINFRA": "NSE:HILINFRA-EQ",
             "SAATVIKGL": "NSE:SAATVIKGL-EQ",
+            "ATLANTAELE": "NSE:ATLANTAELE-EQ",
+            "STYL": "NSE:STYL-EQ",
+            "SOLARWORLD": "NSE:SOLARWORLD-EQ",
+            "TRUALT": "NSE:TRUALT-EQ",
+            "ADVANCE": "NSE:ADVANCE-EQ",
+            "LGEINDIA": "NSE:LGEINDIA-EQ",
+            "RUBICON": "NSE:RUBICON-EQ",
+            "ORKLAINDIA": "NSE:ORKLAINDIA-EQ",
+            "LENSKART": "NSE:LENSKART-EQ",
+            "GROWW": "NSE:GROWW-EQ",
 
             # Favourite Stocks
             "STLNETWORK": "NSE:STLNETWORK-EQ",
