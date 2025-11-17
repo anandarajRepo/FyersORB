@@ -499,8 +499,7 @@ class ORBStrategy:
             )
 
             # Get symbol info for logging
-            symbol_info = symbol_manager.get_symbol_info(symbol)
-            category = symbol_info.category.value if symbol_info else "UNKNOWN"
+            category = "GENERAL"  # Default category since sector limits are disabled
 
             logger.info(f"ORB Signal: {symbol} ({category}) {signal_type.value} - "
                         f"Entry: Rs.{entry_price:.2f}, SL: Rs.{stop_loss:.2f}, "
