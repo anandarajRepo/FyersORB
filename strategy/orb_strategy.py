@@ -787,13 +787,10 @@ class ORBStrategy:
                 current_quote = self.live_quotes.get(symbol)
                 current_price = current_quote.ltp if current_quote else 0
 
-                # Get symbol info for display
-                symbol_info = symbol_manager.get_symbol_info(symbol)
-
                 position_details.append({
                     'symbol': symbol,
-                    'company_name': symbol_info.company_name if symbol_info else symbol,
-                    'category': pos.category.value,
+                    'company_name': symbol,
+                    'category': pos.category,
                     'signal_type': pos.signal_type.value,
                     'entry_price': pos.entry_price,
                     'current_price': current_price,
@@ -809,10 +806,9 @@ class ORBStrategy:
             # Opening ranges summary
             orb_summary = []
             for symbol, orb_range in self.opening_ranges.items():
-                symbol_info = symbol_manager.get_symbol_info(symbol)
                 orb_summary.append({
                     'symbol': symbol,
-                    'company_name': symbol_info.company_name if symbol_info else symbol,
+                    'company_name': symbol,
                     'range_high': orb_range.high,
                     'range_low': orb_range.low,
                     'range_size': orb_range.range_size,
@@ -908,10 +904,9 @@ class ORBStrategy:
                 perf['win_rate'] = (perf['wins'] / perf['trades']) * 100 if perf['trades'] > 0 else 0
 
                 # Add symbol info
-                symbol_info = symbol_manager.get_symbol_info(symbol)
-                if symbol_info:
-                    perf['company_name'] = symbol_info.company_name
-                    perf['fyers_symbol'] = symbol_info.fyers_symbol
+                from config.symbols import convert_to_fyers_format
+                perf['company_name'] = symbol
+                perf['fyers_symbol'] = convert_to_fyers_format(symbol)
 
             return {
                 'symbol_performance': symbol_performance,

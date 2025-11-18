@@ -400,21 +400,14 @@ def analyze_trade_results(trades: List[TradeResult]) -> Dict:
 # Helper function to get symbol info for display
 def get_symbol_display_info(symbol: str) -> Dict:
     """Get display information for a symbol"""
-    symbol_info = symbol_manager.get_symbol_info(symbol)
-    if symbol_info:
-        return {
-            'display_symbol': symbol_info.display_symbol,
-            'company_name': symbol_info.company_name,
-            'category': symbol_info.category.value,
-            'fyers_symbol': symbol_info.fyers_symbol
-        }
-    else:
-        return {
-            'display_symbol': symbol,
-            'company_name': symbol,
-            'category': 'UNKNOWN',
-            'fyers_symbol': f'NSE:{symbol}-EQ'
-        }
+    from config.symbols import convert_to_fyers_format
+
+    return {
+        'display_symbol': symbol,
+        'company_name': symbol,
+        'category': 'GENERAL',
+        'fyers_symbol': convert_to_fyers_format(symbol) or f'NSE:{symbol}-EQ'
+    }
 
 
 # Add the helper function to exports
