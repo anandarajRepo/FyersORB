@@ -283,8 +283,6 @@ def create_orb_signal_from_symbol(symbol: str, signal_type: SignalType, **kwargs
     """Create ORB signal with automatic category detection"""
     from config.symbols import symbol_manager
 
-    symbol_info = symbol_manager.get_symbol_info(symbol)
-
     return ORBSignal(
         symbol=symbol,
         signal_type=signal_type,

@@ -119,8 +119,7 @@ def create_sample_orb_signal(
         target_price = breakout_price * 0.98
 
     # Get category from centralized symbol manager
-    symbol_info = symbol_manager.get_symbol_info(symbol)
-    category = symbol_info.category if symbol_info else SymbolCategory.LARGE_CAP
+    category = symbol
 
     return ORBSignal(
         symbol=symbol,
