@@ -477,10 +477,14 @@ class ORBStrategy:
             risk_amount = abs(entry_price - stop_loss)
             reward_amount = abs(target_price - entry_price)
 
+            # Get symbol info for logging
+            category = "GENERAL"  # Default category since sector limits are disabled
+
             # Create signal using centralized symbol management
             signal = create_orb_signal_from_symbol(
                 symbol=symbol,
                 signal_type=signal_type,
+                category=category,
                 breakout_price=breakout_level,
                 range_high=opening_range.high,
                 range_low=opening_range.low,
@@ -497,9 +501,6 @@ class ORBStrategy:
                 risk_amount=risk_amount,
                 reward_amount=reward_amount
             )
-
-            # Get symbol info for logging
-            category = "GENERAL"  # Default category since sector limits are disabled
 
             logger.info(f"ORB Signal: {symbol} ({category}) {signal_type.value} - "
                         f"Entry: Rs.{entry_price:.2f}, SL: Rs.{stop_loss:.2f}, "
