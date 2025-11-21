@@ -737,7 +737,7 @@ class ORBStrategy:
             logger.info(f"  Pending Transitions: {len(self.pending_breakout_symbols)}")
 
             if category_summary:
-                category_info = ", ".join([f"{cat.value}: {info['count']}"
+                category_info = ", ".join([f"{cat}: {info['count']}"
                                            for cat, info in category_summary.items()])
                 logger.info(f"  Category Distribution: {category_info}")
 
@@ -855,7 +855,7 @@ class ORBStrategy:
                     'no_category_limits': True
                 },
                 'risk_metrics': risk_metrics,
-                'category_summary': {cat.value: info for cat, info in category_summary.items()},
+                'category_summary': {cat: info for cat, info in category_summary.items()},
                 'market_state': {
                     'orb_period_active': self.market_state.orb_period_active,
                     'signal_generation_active': self.market_state.signal_generation_active,
@@ -891,7 +891,7 @@ class ORBStrategy:
                         'trades': 0,
                         'wins': 0,
                         'total_pnl': 0.0,
-                        'category': trade.category.value
+                        'category': trade.category
                     }
 
                 perf = symbol_performance[trade.symbol]
