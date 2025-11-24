@@ -27,6 +27,7 @@ from models.trading_models import (
 from services.fyers_websocket_service import HybridORBDataService
 from services.analysis_service import ORBTechnicalAnalysisService
 from services.market_timing_service import MarketTimingService
+from strategy.order_manager import OrderManager
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,9 @@ class ORBStrategy:
         self.data_service = HybridORBDataService(fyers_config, ws_config)
         self.analysis_service = ORBTechnicalAnalysisService(self.data_service)
         self.timing_service = MarketTimingService(trading_config)
+
+        # ADD THIS LINE:
+        self.order_manager = OrderManager(fyers_config)
 
         # Strategy state
         self.positions: Dict[str, Position] = {}
@@ -97,6 +101,13 @@ class ORBStrategy:
         """Initialize strategy and data connections"""
         try:
             logger.info("Initializing ORB Strategy with event-based transition detection...")
+
+            # ADD THIS - Verify broker connection
+            if not self.order_manager.verify_broker_connection():
+                logger.error("Failed to verify broker connection")
+                return False
+
+            logger.info("Broker connection verified")
 
             # Connect to data service
             if not self.data_service.connect():
@@ -235,12 +246,20 @@ class ORBStrategy:
                 )
 
                 # Only update if trailing stop is better
+                should_modify = False
                 if position.signal_type == SignalType.LONG and new_stop > position.current_stop_loss:
-                    position.current_stop_loss = new_stop
-                    logger.info(f"Trailing stop updated for {symbol}: Rs.{new_stop:.2f}")
+                    should_modify = True
                 elif position.signal_type == SignalType.SHORT and new_stop < position.current_stop_loss:
-                    position.current_stop_loss = new_stop
-                    logger.info(f"Trailing stop updated for {symbol}: Rs.{new_stop:.2f}")
+                    should_modify = True
+
+                if should_modify:
+                    # MODIFY ACTUAL STOP LOSS ORDER
+                    import asyncio
+                    modified = asyncio.create_task(
+                        self.order_manager.modify_stop_loss(position, new_stop)
+                    )
+
+                    logger.info(f"Trailing stop modified for {symbol}: Rs.{new_stop:.2f}")
 
         except Exception as e:
             logger.error(f"Error updating position tracking for {symbol}: {e}")
@@ -438,7 +457,7 @@ class ORBStrategy:
             new_signals.sort(key=lambda x: x.confidence, reverse=True)
 
             if new_signals:
-                logger.info(f"📊 Generated {len(new_signals)} valid signals from transition events")
+                logger.info(f"Generated {len(new_signals)} valid signals from transition events")
 
             # Execute signals up to position limit
             available_slots = self.strategy_config.max_positions - len(self.positions)
@@ -542,9 +561,34 @@ class ORBStrategy:
                         f"Qty: {abs(quantity)}, Entry: Rs.{signal.entry_price:.2f}, "
                         f"Range: Rs.{signal.range_low:.2f}-{signal.range_high:.2f}")
 
-            # In real implementation, place actual orders here
-            # await self._place_entry_order(position)
-            # await self._place_stop_loss_order(position)
+            logger.info(f"Placing orders for {signal.symbol} ({signal.category}) {signal.signal_type.value} - "
+                        f"Qty: {abs(quantity)}, Entry: Rs.{signal.entry_price:.2f}")
+
+            # PLACE ACTUAL ORDERS
+            entry_placed = await self.order_manager.place_entry_order(position)
+            if not entry_placed:
+                logger.error(f"Failed to place entry order for {signal.symbol}")
+                return False
+
+            # Place stop loss order
+            sl_placed = await self.order_manager.place_stop_loss_order(position)
+            if not sl_placed:
+                logger.warning(f"Failed to place stop loss order for {signal.symbol}")
+                # Consider cancelling entry order here
+
+            # Optionally place target order
+            target_placed = await self.order_manager.place_target_order(position)
+            if not target_placed:
+                logger.warning(f"Failed to place target order for {signal.symbol}")
+
+            # Store position only after orders are placed
+            self.positions[signal.symbol] = position
+            self.signals_generated_today.append(signal)
+
+            logger.info(f"Position Opened: {signal.symbol} - "
+                        f"Entry Order: {position.order_id}, "
+                        f"SL Order: {position.sl_order_id}, "
+                        f"Target Order: {position.target_order_id}")
 
             return True
 
@@ -633,8 +677,7 @@ class ORBStrategy:
                 # Update daily P&L
                 self.daily_pnl += partial_pnl
 
-                logger.info(f"Partial Exit: {position.symbol} - Qty: {partial_qty}, "
-                            f"P&L: Rs.{partial_pnl:.2f}, Stop moved to breakeven")
+                logger.info(f"Partial Exit: {position.symbol} - Qty: {partial_qty}, "f"P&L: Rs.{partial_pnl:.2f}, Stop moved to breakeven")
 
         except Exception as e:
             logger.error(f"Error in partial exit for {position.symbol}: {e}")
@@ -644,6 +687,16 @@ class ORBStrategy:
         try:
             position = self.positions[symbol]
             current_price = self.live_quotes[symbol].ltp
+
+            logger.info(f"Closing position {symbol} - Reason: {reason}")
+
+            # PLACE ACTUAL EXIT ORDER
+            exit_placed = await self.order_manager.place_exit_order(position, current_price)
+
+            if not exit_placed:
+                logger.error(f"Failed to place exit order for {symbol}")
+                # Don't remove position if exit order failed
+                return
 
             # Create trade result using utility function
             trade_result = create_trade_result_from_position(position, current_price, reason)
@@ -657,10 +710,7 @@ class ORBStrategy:
             # Remove position
             del self.positions[symbol]
 
-            logger.info(f"🔒 Position Closed: {symbol} - {reason} - P&L: Rs.{trade_result.net_pnl:.2f}")
-
-            # In real implementation, place closing orders here
-            # await self._place_exit_order(position, current_price)
+            logger.info(f"Position Closed: {symbol} - {reason} - "f"P&L: Rs.{trade_result.net_pnl:.2f}")
 
         except Exception as e:
             logger.error(f"Error closing position {symbol}: {e}")
