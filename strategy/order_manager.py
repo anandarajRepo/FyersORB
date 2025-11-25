@@ -50,10 +50,10 @@ class OrderManager:
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
                 "qty": abs(position.quantity),
-                "type": 2,  # Limit order
+                "type": 2,  # Market order
                 "side": side,
                 "productType": "INTRADAY",  # Intraday for ORB
-                "limitPrice": position.entry_price,
+                "limitPrice": 0,
                 "stopPrice": 0,
                 "validity": "DAY",
                 "disclosedQty": 0,
@@ -166,7 +166,7 @@ class OrderManager:
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
                 "qty": abs(position.quantity),
-                "type": 2,  # Limit order
+                "type": 1,  # Limit order
                 "side": side,
                 "productType": "INTRADAY",
                 "limitPrice": position.target_price,
@@ -228,7 +228,7 @@ class OrderManager:
                 "type": 2,  # Market order
                 "side": side,
                 "productType": "INTRADAY",
-                "limitPrice": exit_price,  # Use current price as limit
+                "limitPrice": 0,  # Use current price as limit
                 "stopPrice": 0,
                 "validity": "DAY",
                 "disclosedQty": 0,
