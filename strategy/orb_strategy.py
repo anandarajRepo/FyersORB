@@ -648,8 +648,8 @@ class ORBStrategy:
     def _should_exit_on_time(self) -> bool:
         """Check if positions should be closed due to time"""
         now = datetime.now()
-        # Close all positions 15 minutes before market close
-        market_close = now.replace(hour=15, minute=15, second=0, microsecond=0)
+        # Close all positions 20 minutes before market close
+        market_close = now.replace(hour=15, minute=10, second=0, microsecond=0)
         return now >= market_close
 
     async def _partial_exit(self, position: Position, current_price: float):
