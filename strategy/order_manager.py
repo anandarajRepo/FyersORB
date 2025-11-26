@@ -112,7 +112,7 @@ class OrderManager:
                 "side": side,
                 "productType": "INTRADAY",
                 "limitPrice": 0,
-                "stopPrice": position.stop_loss,
+                "stopPrice": round(position.stop_loss),
                 "validity": "DAY",
                 "disclosedQty": 0,
                 "offlineOrder": False
@@ -169,7 +169,7 @@ class OrderManager:
                 "type": 1,  # Limit order
                 "side": side,
                 "productType": "INTRADAY",
-                "limitPrice": position.target_price,
+                "limitPrice": round(position.target_price),
                 "stopPrice": 0,
                 "validity": "DAY",
                 "disclosedQty": 0,
