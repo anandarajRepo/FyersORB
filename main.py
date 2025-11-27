@@ -74,8 +74,8 @@ def load_configuration():
 
         # ORB Strategy configuration
         strategy_config = ORBStrategyConfig(
-            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 5000)),
-            risk_per_trade_pct=float(os.environ.get('RISK_PER_TRADE', 1.0)),
+            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 10000)),
+            risk_per_trade_pct=float(os.environ.get('RISK_PER_TRADE', 10.0)),
             max_positions=int(os.environ.get('MAX_POSITIONS', 5)),
 
             # ORB specific parameters
@@ -89,7 +89,7 @@ def load_configuration():
             trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 0.5)),
 
             # Signal filtering
-            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.5)),
+            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.6)),
             min_volume_ratio=float(os.environ.get('MIN_VOLUME_RATIO', 1.5)),
             max_gap_size=float(os.environ.get('MAX_GAP_SIZE', 3.0)),
 
