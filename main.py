@@ -89,7 +89,7 @@ def load_configuration():
             trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 0.5)),
 
             # Signal filtering
-            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.6)),
+            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.5)),
             min_volume_ratio=float(os.environ.get('MIN_VOLUME_RATIO', 1.5)),
             max_gap_size=float(os.environ.get('MAX_GAP_SIZE', 3.0)),
 
