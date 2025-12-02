@@ -519,7 +519,8 @@ class ORBTechnicalAnalysisService:
         """Calculate appropriate position size based on risk management"""
         try:
             risk_amount = portfolio_value * (risk_per_trade_pct / 100)
-            price_risk = abs(entry_price - stop_loss)
+            # price_risk = abs(entry_price - stop_loss) // Old Code logic
+            price_risk = abs(entry_price)
 
             if price_risk <= 0:
                 return 0
