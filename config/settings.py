@@ -37,7 +37,7 @@ class FyersConfig:
 class ORBStrategyConfig:
     """Open Range Breakout Strategy Configuration"""
     # Portfolio settings
-    portfolio_value: float = 10000
+    portfolio_value: float = 20000
     risk_per_trade_pct: float = 10.0
     max_positions: int = 5
 
@@ -52,7 +52,7 @@ class ORBStrategyConfig:
     trailing_stop_pct: float = 0.5  # Trailing stop adjustment
 
     # Signal filtering
-    min_confidence: float = 0.5
+    min_confidence: float = 0.56
     min_volume_ratio: float = 1.5  # Current vs average volume
     max_gap_size: float = 3.0  # Max overnight gap to consider
 

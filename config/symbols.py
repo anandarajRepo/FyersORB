@@ -32,9 +32,14 @@ class ORBSymbolManager:
             "ADVANCE": "NSE:ADVANCE-EQ",
             "LGEINDIA": "NSE:LGEINDIA-EQ",
             "RUBICON": "NSE:RUBICON-EQ",
+            "MIDWESTLTD": "NSE:MIDWESTLTD-EQ",
             "ORKLAINDIA": "NSE:ORKLAINDIA-EQ",
             "LENSKART": "NSE:LENSKART-EQ",
             "GROWW": "NSE:GROWW-EQ",
+            "SUDEEPPHRM": "NSE:SUDEEPPHRM-EQ",
+            "EXCELSOFT": "NSE:EXCELSOFT-EQ",
+            "CAPILLARY": "NSE:CAPILLARY-B",
+            "TENNIND": "NSE:TENNIND-EQ",
 
             # Favourite Stocks
             "STLNETWORK": "NSE:STLNETWORK-EQ",
