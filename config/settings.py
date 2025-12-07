@@ -42,17 +42,17 @@ class ORBStrategyConfig:
     max_positions: int = 5
 
     # ORB specific parameters
-    orb_period_minutes: int = 15  # Opening range period
-    min_breakout_volume: float = 2.0  # Volume multiplier for breakouts
-    min_range_size_pct: float = 0.5  # Minimum range size as % of price
+    orb_period_minutes: int = 5  # Opening range period
+    min_breakout_volume: float = 3.0  # Volume multiplier for breakouts
+    min_range_size_pct: float = 1.0  # Minimum range size as % of price
 
     # Risk management
-    stop_loss_pct: float = 1.0  # Stop loss as % from breakout level
+    stop_loss_pct: float = 1.5  # Stop loss as % from breakout level
     target_multiplier: float = 2.0  # Target as multiple of risk
     trailing_stop_pct: float = 0.5  # Trailing stop adjustment
 
     # Signal filtering
-    min_confidence: float = 0.56
+    min_confidence: float = 0.65
     min_volume_ratio: float = 1.5  # Current vs average volume
     max_gap_size: float = 3.0  # Max overnight gap to consider
 
@@ -71,7 +71,7 @@ class TradingConfig:
     market_end_minute: int = 30
 
     # ORB specific timing
-    orb_end_minute: int = 30  # ORB period ends at 9:30 AM
+    orb_end_minute: int = 20  # ORB period ends at 9:20 AM
     signal_generation_end_hour: int = 14  # Stop generating signals at 2:00 PM
     signal_generation_end_minute: int = 0
 

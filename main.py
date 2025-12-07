@@ -79,17 +79,17 @@ def load_configuration():
             max_positions=int(os.environ.get('MAX_POSITIONS', 5)),
 
             # ORB specific parameters
-            orb_period_minutes=int(os.environ.get('ORB_PERIOD_MINUTES', 15)),
-            min_breakout_volume=float(os.environ.get('MIN_BREAKOUT_VOLUME', 2.0)),
-            min_range_size_pct=float(os.environ.get('MIN_RANGE_SIZE', 0.5)),
+            orb_period_minutes=int(os.environ.get('ORB_PERIOD_MINUTES', 5)),
+            min_breakout_volume=float(os.environ.get('MIN_BREAKOUT_VOLUME', 3.0)),
+            min_range_size_pct=float(os.environ.get('MIN_RANGE_SIZE', 1.0)),
 
             # Risk management
-            stop_loss_pct=float(os.environ.get('STOP_LOSS_PCT', 1.0)),
+            stop_loss_pct=float(os.environ.get('STOP_LOSS_PCT', 1.5)),
             target_multiplier=float(os.environ.get('TARGET_MULTIPLIER', 2.0)),
             trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 0.5)),
 
             # Signal filtering
-            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.56)),
+            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.65)),
             min_volume_ratio=float(os.environ.get('MIN_VOLUME_RATIO', 1.5)),
             max_gap_size=float(os.environ.get('MAX_GAP_SIZE', 3.0)),
 
@@ -105,7 +105,7 @@ def load_configuration():
             market_start_minute=15,
             market_end_hour=15,
             market_end_minute=30,
-            orb_end_minute=30,
+            orb_end_minute=20,
             signal_generation_end_hour=14,
             signal_generation_end_minute=0,
             monitoring_interval=int(os.environ.get('MONITORING_INTERVAL', 10)),
