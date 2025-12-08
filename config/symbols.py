@@ -38,7 +38,6 @@ class ORBSymbolManager:
             "GROWW": "NSE:GROWW-EQ",
             "SUDEEPPHRM": "NSE:SUDEEPPHRM-EQ",
             "EXCELSOFT": "NSE:EXCELSOFT-EQ",
-            "CAPILLARY": "NSE:CAPILLARY-B",
             "TENNIND": "NSE:TENNIND-EQ",
 
             # Favourite Stocks

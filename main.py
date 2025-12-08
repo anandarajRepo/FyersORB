@@ -272,7 +272,7 @@ def show_strategy_help():
     print("=" * 80)
 
     print("\n STRATEGY OVERVIEW:")
-    print("• Identifies opening range during first 15 minutes of trading (9:15-9:30 AM)")
+    print("• Identifies opening range during first 5 minutes of trading (9:15-9:20 AM)")
     print("• Detects price breakouts above/below opening range with volume confirmation")
     print("• Uses technical analysis for signal validation (RSI, momentum, volume)")
     print("• Implements comprehensive risk management with trailing stops")
@@ -447,7 +447,7 @@ def show_market_status():
         print(f"\n Market Status:")
         print(f"  Trading Day: {' Yes' if is_trading_day else ' No (Holiday/Weekend)'}")
         print(f"  Market Open: {' Yes' if is_trading_time else ' No'}")
-        print(f"  ORB Period: {' Active (9:15-9:30)' if is_orb_period else ' Inactive'}")
+        print(f"  ORB Period: {' Active (9:15-9:20)' if is_orb_period else ' Inactive'}")
         print(f"  Signal Generation: {' Active' if is_signal_time else ' Inactive'}")
         print(f"  Position Closing Time: {'️  Yes' if should_close else ' No'}")
 
@@ -456,8 +456,8 @@ def show_market_status():
         phase_descriptions = {
             'MARKET_HOLIDAY': '  Market Holiday',
             'PRE_MARKET': ' Pre-Market (Before 9:15 AM)',
-            'ORB_PERIOD': ' Opening Range Period (9:15-9:30 AM)',
-            'SIGNAL_GENERATION': ' Signal Generation Window (9:30-2:00 PM)',
+            'ORB_PERIOD': ' Opening Range Period (9:15-9:20 AM)',
+            'SIGNAL_GENERATION': ' Signal Generation Window (9:20-2:00 PM)',
             'REGULAR_TRADING': ' Regular Trading Hours',
             'POSITION_CLOSING': '️  Position Closing Time (3:15-3:30 PM)',
             'POST_MARKET': ' Post-Market (After 3:30 PM)'
@@ -491,8 +491,8 @@ def show_market_status():
 
         print(f"\n Standard Market Hours (IST):")
         print(f"  Market Opens: 09:15")
-        print(f"  ORB Period: 09:15 - 09:30 (Opening Range Calculation)")
-        print(f"  Signal Generation: 09:30 - 14:00 (Breakout Detection)")
+        print(f"  ORB Period: 09:15 - 09:20 (Opening Range Calculation)")
+        print(f"  Signal Generation: 09:20 - 14:00 (Breakout Detection)")
         print(f"  Regular Trading: 14:00 - 15:15 (Position Monitoring)")
         print(f"  Position Closing: 15:15 - 15:30 (End-of-Day Exits)")
         print(f"  Market Closes: 15:30")
