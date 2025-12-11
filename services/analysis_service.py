@@ -557,7 +557,7 @@ class ORBTechnicalAnalysisService:
 
             # Check market hours (only allow new positions during specific hours)
             now = datetime.now()
-            if now.hour >= 14:  # Stop taking new positions after 2 PM
+            if now.hour >= 15:  # Stop taking new positions after 2 PM
                 return False
 
             return True

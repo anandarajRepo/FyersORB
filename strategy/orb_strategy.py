@@ -366,9 +366,9 @@ class ORBStrategy:
             logger.warning("Daily loss limit reached - no new signals")
             return False
 
-        # Only generate signals until 2 PM
+        # Only generate signals until 3 PM
         now = datetime.now()
-        if now.hour >= 14:
+        if now.hour >= 15:
             return False
 
         return True

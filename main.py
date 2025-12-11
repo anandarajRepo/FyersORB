@@ -106,7 +106,7 @@ def load_configuration():
             market_end_hour=15,
             market_end_minute=30,
             orb_end_minute=20,
-            signal_generation_end_hour=14,
+            signal_generation_end_hour=15,
             signal_generation_end_minute=0,
             monitoring_interval=int(os.environ.get('MONITORING_INTERVAL', 10)),
             position_update_interval=int(os.environ.get('POSITION_UPDATE_INTERVAL', 5))
@@ -492,8 +492,8 @@ def show_market_status():
         print(f"\n Standard Market Hours (IST):")
         print(f"  Market Opens: 09:15")
         print(f"  ORB Period: 09:15 - 09:20 (Opening Range Calculation)")
-        print(f"  Signal Generation: 09:20 - 14:00 (Breakout Detection)")
-        print(f"  Regular Trading: 14:00 - 15:15 (Position Monitoring)")
+        print(f"  Signal Generation: 09:20 - 15:00 (Breakout Detection)")
+        print(f"  Regular Trading: 15:00 - 15:15 (Position Monitoring)")
         print(f"  Position Closing: 15:15 - 15:30 (End-of-Day Exits)")
         print(f"  Market Closes: 15:30")
 
