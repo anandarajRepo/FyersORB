@@ -15,8 +15,6 @@ class ORBSymbolManager:
         # Simple mapping: symbol -> Fyers WebSocket format
         self._symbol_mappings: Dict[str, str] = {
             # IPO Stocks
-            "EUROPRATIK": "NSE:EUROPRATIK-EQ",
-            "SHRINGARMS": "NSE:SHRINGARMS-EQ",
             "URBANCO": "NSE:URBANCO-EQ",
             "AMANTA": "NSE:AMANTA-EQ",
             "VIKRAMSOLR": "NSE:VIKRAMSOLR-EQ",
@@ -39,6 +37,9 @@ class ORBSymbolManager:
             "SUDEEPPHRM": "NSE:SUDEEPPHRM-EQ",
             "EXCELSOFT": "NSE:EXCELSOFT-EQ",
             "TENNIND": "NSE:TENNIND-EQ",
+            "MEESHO": "NSE:MEESHO-EQ",
+            "AEQUS": "NSE:AEQUS-EQ",
+            "CORONA": "NSE:CORONA-EQ",
 
             # Favourite Stocks
             "STLNETWORK": "NSE:STLNETWORK-EQ",
