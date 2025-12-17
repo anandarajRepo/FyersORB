@@ -277,7 +277,7 @@ class ORBStrategy:
             # Check if ORB period just ended and mark as completed
             if not self.orb_completed and not self._is_orb_period():
                 now = datetime.now()
-                orb_end = now.replace(hour=9, minute=20, second=0, microsecond=0)
+                orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
                 if now > orb_end:
                     self.orb_completed = True
                     self.opening_ranges = self.data_service.get_all_opening_ranges()
@@ -350,7 +350,7 @@ class ORBStrategy:
         """Check if we're currently in ORB period"""
         now = datetime.now()
         orb_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
-        orb_end = now.replace(hour=9, minute=20, second=0, microsecond=0)
+        orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
         return orb_start <= now <= orb_end
 
     def _should_generate_signals(self) -> bool:

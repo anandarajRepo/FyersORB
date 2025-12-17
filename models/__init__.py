@@ -96,7 +96,7 @@ def create_sample_opening_range(symbol: str, base_price: float = 100.0) -> OpenR
         range_pct=((high - low) / low) * 100,
         volume=50000,
         start_time=datetime.now().replace(hour=9, minute=15),
-        end_time=datetime.now().replace(hour=9, minute=20)
+        end_time=datetime.now().replace(hour=9, minute=30)
     )
 
 
@@ -137,7 +137,7 @@ def create_sample_orb_signal(
         breakout_volume=75000,
         momentum_score=0.8,
         timestamp=datetime.now(),
-        orb_period_end=datetime.now().replace(hour=9, minute=20),
+        orb_period_end=datetime.now().replace(hour=9, minute=30),
         risk_amount=abs(entry_price - stop_loss),
         reward_amount=abs(target_price - entry_price)
     )

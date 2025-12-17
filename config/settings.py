@@ -71,7 +71,7 @@ class TradingConfig:
     market_end_minute: int = 30
 
     # ORB specific timing
-    orb_end_minute: int = 20  # ORB period ends at 9:20 AM
+    orb_end_minute: int = 30  # ORB period ends at 9:30 AM
     signal_generation_end_hour: int = 15  # Stop generating signals at 2:00 PM
     signal_generation_end_minute: int = 0
 

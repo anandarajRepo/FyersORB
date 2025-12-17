@@ -101,8 +101,8 @@ class ORBWebSocketService:
         # Set ORB period start (9:15 AM)
         self.orb_period_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
 
-        # Set ORB period end (9:20 AM)
-        self.orb_period_end = now.replace(hour=9, minute=20, second=0, microsecond=0)
+        # Set ORB period end (9:30 AM)
+        self.orb_period_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
 
         # Check if we're currently in ORB period
         self.is_orb_period_active = self.orb_period_start <= now <= self.orb_period_end
@@ -447,7 +447,7 @@ class ORBFallbackDataService:
                 # Adjust polling frequency based on ORB period
                 now = datetime.now()
                 orb_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
-                orb_end = now.replace(hour=9, minute=20, second=0, microsecond=0)
+                orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
 
                 if orb_start <= now <= orb_end:
                     # More frequent polling during ORB period
@@ -526,7 +526,7 @@ class ORBFallbackDataService:
         try:
             now = datetime.now()
             orb_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
-            orb_end = now.replace(hour=9, minute=20, second=0, microsecond=0)
+            orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
 
             if orb_start <= now <= orb_end:
                 # Cache ORB period data
