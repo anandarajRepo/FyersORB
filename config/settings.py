@@ -76,5 +76,5 @@ class TradingConfig:
     signal_generation_end_minute: int = 0
 
     # Monitoring
-    monitoring_interval: int = 10  # seconds
+    monitoring_interval: int = 1  # seconds
     position_update_interval: int = 5  # seconds

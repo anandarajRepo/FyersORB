@@ -91,7 +91,7 @@ def get_development_config():
             risk_per_trade_pct=0.5  # Lower risk for testing
         ),
         'trading': TradingConfig(
-            monitoring_interval=5  # More frequent monitoring
+            monitoring_interval=1  # More frequent monitoring
         ),
         'websocket': create_websocket_config("development")
     }

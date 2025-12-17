@@ -108,7 +108,7 @@ def load_configuration():
             orb_end_minute=20,
             signal_generation_end_hour=15,
             signal_generation_end_minute=0,
-            monitoring_interval=int(os.environ.get('MONITORING_INTERVAL', 10)),
+            monitoring_interval=int(os.environ.get('MONITORING_INTERVAL', 1)),
             position_update_interval=int(os.environ.get('POSITION_UPDATE_INTERVAL', 5))
         )
 
@@ -319,7 +319,7 @@ def show_strategy_help():
     print("  MIN_VOLUME_RATIO=1.5          # Volume vs 20-day average ratio")
 
     print("\n System Settings:")
-    print("  MONITORING_INTERVAL=10        # Strategy monitoring cycle (seconds)")
+    print("  MONITORING_INTERVAL=1        # Strategy monitoring cycle (seconds)")
     print("  POSITION_UPDATE_INTERVAL=5    # Position update frequency (seconds)")
     print("  LOG_LEVEL=INFO               # Logging verbosity (DEBUG/INFO/WARNING/ERROR)")
 

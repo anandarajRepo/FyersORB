@@ -1037,10 +1037,7 @@ class ORBStrategy:
                 await self.run_strategy_cycle()
 
                 # Sleep until next cycle (more frequent during ORB period)
-                if self._is_orb_period():
-                    await asyncio.sleep(5)  # 5 seconds during ORB
-                else:
-                    await asyncio.sleep(self.trading_config.monitoring_interval)
+                await asyncio.sleep(self.trading_config.monitoring_interval)
 
         except KeyboardInterrupt:
             logger.info("ORB Strategy stopped by user")
