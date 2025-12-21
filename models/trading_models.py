@@ -363,7 +363,7 @@ def get_category_summary(positions: List[Position]) -> Dict[str, Dict]:
     return category_summary
 
 
-def validate_signal_quality(signal: ORBSignal, min_confidence: float = 0.6) -> bool:
+def validate_signal_quality(signal: ORBSignal, min_confidence: float = 0.55) -> bool:
     """Validate signal quality based on various criteria"""
     logger.info(f"Validating signal quality for {signal}, signal.confidence: {signal.confidence}, signal.range_size: {signal.range_size}, signal.risk_amount: {signal.risk_amount}, signal.volume_ratio: {signal.volume_ratio}")
     if signal.confidence < min_confidence:

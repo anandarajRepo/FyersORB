@@ -89,7 +89,7 @@ def load_configuration():
             trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 0.5)),
 
             # Signal filtering
-            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.65)),
+            min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.55)),
             min_volume_ratio=float(os.environ.get('MIN_VOLUME_RATIO', 1.5)),
             max_gap_size=float(os.environ.get('MAX_GAP_SIZE', 3.0)),
 
@@ -315,7 +315,7 @@ def show_strategy_help():
     print("  PARTIAL_EXIT_PCT=50.0         # Percentage for partial exits")
 
     print("\n Signal Filtering:")
-    print("  MIN_CONFIDENCE=0.6            # Minimum signal confidence (60%)")
+    print("  MIN_CONFIDENCE=0.55            # Minimum signal confidence (60%)")
     print("  MIN_VOLUME_RATIO=1.5          # Volume vs 20-day average ratio")
 
     print("\n System Settings:")
