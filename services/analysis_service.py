@@ -526,6 +526,7 @@ class ORBTechnicalAnalysisService:
                 return 0
 
             quantity = int(risk_amount / price_risk)
+            logger.info(f"portfolio_value: {portfolio_value}, risk_per_trade_pct: {risk_per_trade_pct}, risk_amount: {risk_amount}, price_risk: {price_risk}, quantity: {quantity}")
             return max(quantity, 0)
 
         except Exception as e:

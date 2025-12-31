@@ -411,7 +411,7 @@ def monitor_strategy_health(strategy: ORBStrategy) -> Dict[str, Any]:
         # Check position status
         if hasattr(strategy, 'positions'):
             active_positions = len(strategy.positions)
-            max_positions = getattr(strategy.strategy_config, 'max_positions', 5)
+            max_positions = getattr(strategy.strategy_config, 'max_positions', 3)
 
             if active_positions >= max_positions:
                 health_status['recommendations'].append("At maximum position limit")

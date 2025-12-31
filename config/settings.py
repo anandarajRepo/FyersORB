@@ -37,12 +37,12 @@ class FyersConfig:
 class ORBStrategyConfig:
     """Open Range Breakout Strategy Configuration"""
     # Portfolio settings
-    portfolio_value: float = 20000
-    risk_per_trade_pct: float = 10.0
-    max_positions: int = 5
+    portfolio_value: float = 30000
+    risk_per_trade_pct: float = 30.0
+    max_positions: int = 3
 
     # ORB specific parameters
-    orb_period_minutes: int = 5  # Opening range period
+    orb_period_minutes: int = 15  # Opening range period
     min_breakout_volume: float = 3.0  # Volume multiplier for breakouts
     min_range_size_pct: float = 1.0  # Minimum range size as % of price
 

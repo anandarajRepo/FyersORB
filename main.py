@@ -74,12 +74,12 @@ def load_configuration():
 
         # ORB Strategy configuration
         strategy_config = ORBStrategyConfig(
-            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 20000)),
-            risk_per_trade_pct=float(os.environ.get('RISK_PER_TRADE', 10.0)),
-            max_positions=int(os.environ.get('MAX_POSITIONS', 5)),
+            portfolio_value=float(os.environ.get('PORTFOLIO_VALUE', 30000)),
+            risk_per_trade_pct=float(os.environ.get('RISK_PER_TRADE', 30.0)),
+            max_positions=int(os.environ.get('MAX_POSITIONS', 3)),
 
             # ORB specific parameters
-            orb_period_minutes=int(os.environ.get('ORB_PERIOD_MINUTES', 5)),
+            orb_period_minutes=int(os.environ.get('ORB_PERIOD_MINUTES', 15)),
             min_breakout_volume=float(os.environ.get('MIN_BREAKOUT_VOLUME', 3.0)),
             min_range_size_pct=float(os.environ.get('MIN_RANGE_SIZE', 1.0)),
 
@@ -296,9 +296,9 @@ def show_strategy_help():
     print("Edit .env file or set environment variables:")
 
     print("\n Portfolio Settings:")
-    print("  PORTFOLIO_VALUE=5000          # Total portfolio value (₹5k)")
+    print("  PORTFOLIO_VALUE=30000          # Total portfolio value (Rs.30k)")
     print("  RISK_PER_TRADE=1.0            # Risk per trade (1% of portfolio)")
-    print("  MAX_POSITIONS=5               # Maximum concurrent positions")
+    print("  MAX_POSITIONS=3               # Maximum concurrent positions")
 
     print("\n ORB Strategy Parameters:")
     print("  ORB_PERIOD_MINUTES=15         # Opening range calculation period")
