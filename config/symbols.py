@@ -42,10 +42,10 @@ class ORBSymbolManager:
             "CORONA": "NSE:CORONA-EQ",
 
             # Favourite Stocks
-            "STLNETWORK": "NSE:STLNETWORK-EQ",
             "STLTECH": "NSE:STLTECH-EQ",
             "SKYGOLD": "NSE:SKYGOLD-EQ",
-            "SATTRIX": "BSE:SATTRIX-MT",
+            "AXISCADES": "NSE:AXISCADES-EQ",
+            "SATTRIX": "BSE:SATTRIX-M",
         }
 
         # Create reverse mapping for quick lookups

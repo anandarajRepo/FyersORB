@@ -120,6 +120,9 @@ class Position:
     max_favorable_excursion: float = 0.0
     max_adverse_excursion: float = 0.0
 
+    # NEW: Queue for pending stop loss modifications
+    pending_stop_modification: Optional[float] = None  # ✨ ADD THIS LINE
+
     def __post_init__(self):
         self.current_stop_loss = self.stop_loss
         self.highest_price = self.entry_price if self.signal_type == SignalType.LONG else 0.0

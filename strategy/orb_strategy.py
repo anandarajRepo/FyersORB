@@ -253,13 +253,10 @@ class ORBStrategy:
                     should_modify = True
 
                 if should_modify:
-                    # MODIFY ACTUAL STOP LOSS ORDER
-                    import asyncio
-                    modified = asyncio.create_task(
-                        self.order_manager.modify_stop_loss(position, new_stop)
-                    )
-
-                    logger.info(f"Trailing stop modified for {symbol}: Rs.{new_stop:.2f}")
+                    # Queue modification for processing in async monitoring cycle
+                    position.pending_stop_modification = new_stop
+                    logger.info(f"Trailing stop update queued for {symbol}: "
+                                f"Rs.{position.current_stop_loss:.2f} → Rs.{new_stop:.2f}")
 
         except Exception as e:
             logger.error(f"Error updating position tracking for {symbol}: {e}")
@@ -597,7 +594,7 @@ class ORBStrategy:
             return False
 
     async def _monitor_positions(self):
-        """Monitor existing positions for exits"""
+        """Monitor existing positions for exits and process pending modifications"""
         try:
             positions_to_close = []
 
@@ -608,6 +605,27 @@ class ORBStrategy:
 
                 current_price = live_quote.ltp
 
+                # NEW: Process pending trailing stop modifications
+                if position.pending_stop_modification is not None:
+                    try:
+                        success = await self.order_manager.modify_stop_loss(
+                            position,
+                            position.pending_stop_modification
+                        )
+
+                        if success:
+                            old_stop = position.current_stop_loss
+                            new_stop = position.pending_stop_modification
+                            logger.info(f"Trailing stop modified for {symbol}: "
+                                        f"Rs.{old_stop:.2f} → Rs.{new_stop:.2f}")
+                        else:
+                            logger.warning(f"Failed to modify trailing stop for {symbol}")
+                    except Exception as e:
+                        logger.error(f"Error modifying trailing stop for {symbol}: {e}")
+                    finally:
+                        # Always clear the pending modification
+                        position.pending_stop_modification = None
+
                 # Check stop loss
                 if self._should_exit_on_stop_loss(position, current_price):
                     positions_to_close.append((symbol, "STOP_LOSS", position.unrealized_pnl))
@@ -615,12 +633,11 @@ class ORBStrategy:
                 # Check target
                 elif self._should_exit_on_target(position, current_price):
                     if self.strategy_config.enable_partial_exits:
-                        # Partial exit at target, move stop to breakeven
                         await self._partial_exit(position, current_price)
                     else:
                         positions_to_close.append((symbol, "TARGET", position.unrealized_pnl))
 
-                # Check time-based exit (end of day)
+                # Check time-based exit
                 elif self._should_exit_on_time():
                     positions_to_close.append((symbol, "TIME_EXIT", position.unrealized_pnl))
 
