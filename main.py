@@ -53,7 +53,6 @@ def setup_logging():
     # Set specific log levels for external libraries
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('requests').setLevel(logging.WARNING)
-    logging.getLogger('yfinance').setLevel(logging.WARNING)
 
 
 # Setup logging
@@ -741,7 +740,6 @@ def run_system_diagnostics():
         ('requests', 'HTTP Requests'),
         ('python-dotenv', 'Environment Variables'),
         ('pytz', 'Timezone Support'),
-        ('yfinance', 'Historical Data'),
         ('scipy', 'Statistical Analysis'),
         ('dateutil', 'Date Utilities')
     ]
