@@ -292,7 +292,6 @@ class OrderManager:
                 "qty": abs(position.quantity),
                 "limitPrice": 0,
                 "validity": "DAY",
-                "disclosedQty": 0,
                 "offlineOrder": False
             }
 
