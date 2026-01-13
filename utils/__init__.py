@@ -180,7 +180,7 @@ def validate_environment() -> Dict[str, Any]:
         # Required packages check
         required_packages = [
             'pandas', 'numpy', 'requests', 'python-dotenv',
-            'pytz', 'yfinance', 'fyers_apiv3'
+            'pytz', 'fyers_apiv3'
         ]
 
         missing_packages = []

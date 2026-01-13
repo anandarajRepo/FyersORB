@@ -7,11 +7,12 @@ Provides ORB-specific indicators, volume analysis, and momentum calculations
 
 import numpy as np
 import logging
-import yfinance as yf
 from typing import Dict, List, Tuple, Any
 from datetime import datetime, timedelta
+from fyers_apiv3 import fyersModel
 from models.trading_models import LiveQuote, OpenRange, ORBSignal
 from config.settings import SignalType, Sector
+from config.symbols import convert_to_fyers_format
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,41 @@ class ORBTechnicalAnalysisService:
         self.websocket_service = websocket_service
         self.volume_cache: Dict[str, List[int]] = {}
         self.price_cache: Dict[str, List[float]] = {}
+
+        # Initialize Fyers client for historical data
+        self.fyers_client = None
+        self._initialize_fyers_client()
+
+    def _initialize_fyers_client(self):
+        """Initialize Fyers client for historical data fetching"""
+        try:
+            # Get Fyers config from the data service
+            if hasattr(self.websocket_service, 'fyers_config'):
+                fyers_config = self.websocket_service.fyers_config
+                self.fyers_client = fyersModel.FyersModel(
+                    client_id=fyers_config.client_id,
+                    token=fyers_config.access_token,
+                    log_path=""
+                )
+                logger.info("Fyers client initialized successfully for historical data")
+            elif hasattr(self.websocket_service, 'fallback_service') and self.websocket_service.fallback_service:
+                # Use fallback service's client
+                self.fyers_client = self.websocket_service.fallback_service.fyers
+                logger.info("Using fallback service's Fyers client for historical data")
+            elif hasattr(self.websocket_service, 'primary_service') and self.websocket_service.primary_service:
+                # Try to get config from primary service
+                if hasattr(self.websocket_service.primary_service, 'fyers_config'):
+                    fyers_config = self.websocket_service.primary_service.fyers_config
+                    self.fyers_client = fyersModel.FyersModel(
+                        client_id=fyers_config.client_id,
+                        token=fyers_config.access_token,
+                        log_path=""
+                    )
+                    logger.info("Fyers client initialized from primary service config")
+            else:
+                logger.warning("Could not initialize Fyers client - no config available")
+        except Exception as e:
+            logger.error(f"Error initializing Fyers client: {e}")
 
     def calculate_breakout_strength(self, symbol: str, breakout_price: float,
                                     opening_range: OpenRange, live_quote: LiveQuote) -> float:
@@ -158,40 +194,116 @@ class ORBTechnicalAnalysisService:
             return 0.5
 
     def get_average_volume(self, symbol: str, period_days: int = 20) -> float:
-        """Get average volume for a symbol"""
+        """Get average volume for a symbol using Fyers API"""
         try:
-            # Use yfinance for historical volume data
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period=f"{period_days + 5}d")
-
-            if len(hist) == 0:
+            if not self.fyers_client:
+                logger.warning(f"Fyers client not initialized, cannot fetch volume for {symbol}")
                 return 0.0
 
-            # Get recent volume data
-            recent_volumes = hist['Volume'].tail(period_days)
-            return recent_volumes.mean()
+            # Convert symbol to Fyers format
+            fyers_symbol = convert_to_fyers_format(symbol)
+            if not fyers_symbol:
+                logger.error(f"Could not convert symbol {symbol} to Fyers format")
+                return 0.0
+
+            # Calculate date range (fetch more days to account for weekends/holidays)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=period_days + 10)
+
+            # Prepare data for Fyers history API
+            data = {
+                "symbol": fyers_symbol,
+                "resolution": "D",  # Daily candles
+                "date_format": "1",  # Unix timestamp format
+                "range_from": start_date.strftime("%Y-%m-%d"),
+                "range_to": end_date.strftime("%Y-%m-%d"),
+                "cont_flag": "1"
+            }
+
+            # Fetch historical data
+            response = self.fyers_client.history(data=data)
+
+            if response and response.get('s') == 'ok':
+                candles = response.get('candles', [])
+                if len(candles) == 0:
+                    logger.warning(f"No volume data returned for {symbol}")
+                    return 0.0
+
+                # Extract volumes (index 5 in candle data: [timestamp, open, high, low, close, volume])
+                volumes = [candle[5] for candle in candles if len(candle) > 5]
+
+                # Take last 'period_days' volumes
+                recent_volumes = volumes[-period_days:] if len(volumes) > period_days else volumes
+
+                if len(recent_volumes) > 0:
+                    avg_volume = sum(recent_volumes) / len(recent_volumes)
+                    logger.debug(f"Average volume for {symbol}: {avg_volume:.0f} (over {len(recent_volumes)} days)")
+                    return float(avg_volume)
+                else:
+                    return 0.0
+            else:
+                error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                logger.error(f"Failed to fetch volume data for {symbol}: {error_msg}")
+                return 0.0
 
         except Exception as e:
             logger.error(f"Error getting average volume for {symbol}: {e}")
             return 0.0
 
     def get_recent_prices(self, symbol: str, periods: int = 10) -> List[float]:
-        """Get recent price data"""
+        """Get recent price data using Fyers API"""
         try:
             # Try to get from cache first
             if symbol in self.price_cache:
-                return self.price_cache[symbol][-periods:]
+                cached_prices = self.price_cache[symbol][-periods:]
+                if len(cached_prices) >= periods:
+                    return cached_prices
 
-            # Get from yfinance if not in cache
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period="5d", interval="5m")
+            if not self.fyers_client:
+                logger.warning(f"Fyers client not initialized, cannot fetch prices for {symbol}")
+                return []
 
-            if len(hist) > 0:
-                prices = hist['Close'].tolist()
+            # Convert symbol to Fyers format
+            fyers_symbol = convert_to_fyers_format(symbol)
+            if not fyers_symbol:
+                logger.error(f"Could not convert symbol {symbol} to Fyers format")
+                return []
+
+            # Calculate date range (5 days of 5-minute candles)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=5)
+
+            # Prepare data for Fyers history API
+            data = {
+                "symbol": fyers_symbol,
+                "resolution": "5",  # 5-minute candles
+                "date_format": "1",  # Unix timestamp format
+                "range_from": start_date.strftime("%Y-%m-%d"),
+                "range_to": end_date.strftime("%Y-%m-%d"),
+                "cont_flag": "1"
+            }
+
+            # Fetch historical data
+            response = self.fyers_client.history(data=data)
+
+            if response and response.get('s') == 'ok':
+                candles = response.get('candles', [])
+                if len(candles) == 0:
+                    logger.warning(f"No price data returned for {symbol}")
+                    return []
+
+                # Extract close prices (index 4 in candle data: [timestamp, open, high, low, close, volume])
+                prices = [float(candle[4]) for candle in candles if len(candle) > 4]
+
+                # Cache the prices
                 self.price_cache[symbol] = prices
-                return prices[-periods:]
 
-            return []
+                # Return last 'periods' prices
+                return prices[-periods:] if len(prices) > periods else prices
+            else:
+                error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                logger.error(f"Failed to fetch price data for {symbol}: {error_msg}")
+                return []
 
         except Exception as e:
             logger.error(f"Error getting recent prices for {symbol}: {e}")
@@ -241,25 +353,71 @@ class ORBTechnicalAnalysisService:
             return 0.5
 
     def calculate_rsi(self, symbol: str, period: int = 14) -> float:
-        """Calculate RSI for a symbol"""
+        """Calculate RSI for a symbol using Fyers API"""
         try:
-            # Get recent price data
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period=f"{period + 10}d")
-
-            if len(hist) < period:
+            if not self.fyers_client:
+                logger.warning(f"Fyers client not initialized, cannot calculate RSI for {symbol}")
                 return 50.0  # Neutral RSI
 
-            prices = hist['Close']
-            delta = prices.diff()
+            # Convert symbol to Fyers format
+            fyers_symbol = convert_to_fyers_format(symbol)
+            if not fyers_symbol:
+                logger.error(f"Could not convert symbol {symbol} to Fyers format")
+                return 50.0
 
-            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            # Calculate date range (need more days for RSI calculation)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=period + 15)
 
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs))
+            # Prepare data for Fyers history API
+            data = {
+                "symbol": fyers_symbol,
+                "resolution": "D",  # Daily candles
+                "date_format": "1",  # Unix timestamp format
+                "range_from": start_date.strftime("%Y-%m-%d"),
+                "range_to": end_date.strftime("%Y-%m-%d"),
+                "cont_flag": "1"
+            }
 
-            return rsi.iloc[-1] if not np.isnan(rsi.iloc[-1]) else 50.0
+            # Fetch historical data
+            response = self.fyers_client.history(data=data)
+
+            if response and response.get('s') == 'ok':
+                candles = response.get('candles', [])
+                if len(candles) < period:
+                    logger.warning(f"Insufficient data for RSI calculation for {symbol}")
+                    return 50.0  # Neutral RSI
+
+                # Extract close prices (index 4 in candle data: [timestamp, open, high, low, close, volume])
+                prices = np.array([float(candle[4]) for candle in candles if len(candle) > 4])
+
+                if len(prices) < period:
+                    return 50.0
+
+                # Calculate price changes
+                deltas = np.diff(prices)
+
+                # Separate gains and losses
+                gains = np.where(deltas > 0, deltas, 0)
+                losses = np.where(deltas < 0, -deltas, 0)
+
+                # Calculate average gain and loss
+                avg_gain = np.mean(gains[-period:]) if len(gains) >= period else 0
+                avg_loss = np.mean(losses[-period:]) if len(losses) >= period else 0
+
+                if avg_loss == 0:
+                    return 100.0 if avg_gain > 0 else 50.0
+
+                # Calculate RS and RSI
+                rs = avg_gain / avg_loss
+                rsi = 100 - (100 / (1 + rs))
+
+                logger.debug(f"RSI for {symbol}: {rsi:.2f}")
+                return float(rsi) if not np.isnan(rsi) else 50.0
+            else:
+                error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                logger.error(f"Failed to fetch data for RSI calculation for {symbol}: {error_msg}")
+                return 50.0
 
         except Exception as e:
             logger.error(f"Error calculating RSI for {symbol}: {e}")
