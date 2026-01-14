@@ -85,7 +85,7 @@ def load_configuration():
             # Risk management
             stop_loss_pct=float(os.environ.get('STOP_LOSS_PCT', 1.5)),
             target_multiplier=float(os.environ.get('TARGET_MULTIPLIER', 2.0)),
-            trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 0.5)),
+            trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 1.5)),
 
             # Signal filtering
             min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.55)),
@@ -306,9 +306,9 @@ def show_strategy_help():
     print("  MAX_GAP_SIZE=3.0              # Maximum overnight gap to consider")
 
     print("\n️ Risk Management:")
-    print("  STOP_LOSS_PCT=1.0             # Stop loss distance from breakout level")
+    print("  STOP_LOSS_PCT=1.5             # Stop loss distance from breakout level")
     print("  TARGET_MULTIPLIER=2.0         # Target as multiple of risk (1:2 ratio)")
-    print("  TRAILING_STOP_PCT=0.5         # Trailing stop adjustment percentage")
+    print("  TRAILING_STOP_PCT=1.5         # Trailing stop adjustment percentage")
     print("  ENABLE_TRAILING_STOPS=true    # Enable dynamic trailing stops")
     print("  ENABLE_PARTIAL_EXITS=true     # Take partial profits at targets")
     print("  PARTIAL_EXIT_PCT=50.0         # Percentage for partial exits")

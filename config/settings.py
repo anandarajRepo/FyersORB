@@ -49,7 +49,7 @@ class ORBStrategyConfig:
     # Risk management
     stop_loss_pct: float = 1.5  # Stop loss as % from breakout level
     target_multiplier: float = 2.0  # Target as multiple of risk
-    trailing_stop_pct: float = 0.5  # Trailing stop adjustment
+    trailing_stop_pct: float = 1.5  # Trailing stop adjustment
 
     # Signal filtering
     min_confidence: float = 0.65
