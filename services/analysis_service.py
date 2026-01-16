@@ -491,8 +491,8 @@ class ORBTechnicalAnalysisService:
             else:
                 # For short positions, trail above lowest price
                 trailing_stop = lowest_price * (1 + trailing_pct / 100)
-                # Never move stop loss above entry
-                return min(trailing_stop, entry_price)
+                # Never move stop loss below entry (keep stop above entry)
+                return max(trailing_stop, entry_price)
 
         except Exception as e:
             logger.error(f"Error calculating trailing stop: {e}")
