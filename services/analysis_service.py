@@ -480,19 +480,53 @@ class ORBTechnicalAnalysisService:
 
     def calculate_trailing_stop(self, signal_type: SignalType, entry_price: float,
                                 current_price: float, highest_price: float,
-                                lowest_price: float, trailing_pct: float = 0.5) -> float:
-        """Calculate trailing stop loss level"""
+                                lowest_price: float, trailing_pct: float,
+                                min_profit_pct: float) -> float:
+        """
+        Calculate trailing stop loss level
+
+        Args:
+            signal_type: LONG or SHORT
+            entry_price: Original entry price
+            current_price: Current market price
+            highest_price: Highest price since entry (for LONG)
+            lowest_price: Lowest price since entry (for SHORT)
+            trailing_pct: Trailing stop percentage
+            min_profit_pct: Minimum profit % before trailing starts (default 0.5%)
+
+        Returns:
+            New stop loss level (or original stop if not profitable enough)
+        """
         try:
             if signal_type == SignalType.LONG:
-                # For long positions, trail below highest price
+                # ONLY trail if position is profitable by minimum threshold
+                profit_pct = ((current_price - entry_price) / entry_price) * 100
+
+                if profit_pct < min_profit_pct:
+                    # Not profitable enough - don't trail yet
+                    # Return the original stop loss (calculated elsewhere)
+                    return entry_price * 0.985  # Original stop loss (example: 1.5% below entry)
+
+                # Calculate trailing stop below highest price
                 trailing_stop = highest_price * (1 - trailing_pct / 100)
-                # Never move stop loss below entry
+
+                # Never move stop below entry price
                 return max(trailing_stop, entry_price)
-            else:
-                # For short positions, trail above lowest price
+
+            else:  # SHORT
+                # ONLY trail if position is profitable by minimum threshold
+                profit_pct = ((entry_price - current_price) / entry_price) * 100
+
+                if profit_pct < min_profit_pct:
+                    # Not profitable enough - don't trail yet
+                    # Return the original stop loss (calculated elsewhere)
+                    return entry_price * 1.015  # Original stop loss (example: 1.5% above entry)
+
+                # Calculate trailing stop above lowest price
                 trailing_stop = lowest_price * (1 + trailing_pct / 100)
-                # Never move stop loss below entry (keep stop above entry)
-                return max(trailing_stop, entry_price)
+
+                # Never move stop below entry price (for SHORT, keep stop ABOVE entry)
+                return min(trailing_stop, entry_price)  # Use min() for SHORT, not max()
 
         except Exception as e:
             logger.error(f"Error calculating trailing stop: {e}")

@@ -86,6 +86,7 @@ def load_configuration():
             stop_loss_pct=float(os.environ.get('STOP_LOSS_PCT', 1.5)),
             target_multiplier=float(os.environ.get('TARGET_MULTIPLIER', 2.0)),
             trailing_stop_pct=float(os.environ.get('TRAILING_STOP_PCT', 1.5)),
+            min_profit_for_trailing=float(os.environ.get('MIN_PROFIT_FOR_TRAILING', 1.0)),
 
             # Signal filtering
             min_confidence=float(os.environ.get('MIN_CONFIDENCE', 0.55)),

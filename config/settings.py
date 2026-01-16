@@ -35,6 +35,7 @@ class FyersConfig:
 
 @dataclass
 class ORBStrategyConfig:
+    """Dataclass Default Value - Fallback if env var not found"""
     """Open Range Breakout Strategy Configuration"""
     # Portfolio settings
     portfolio_value: float = 30000
@@ -50,6 +51,7 @@ class ORBStrategyConfig:
     stop_loss_pct: float = 1.5  # Stop loss as % from breakout level
     target_multiplier: float = 2.0  # Target as multiple of risk
     trailing_stop_pct: float = 1.5  # Trailing stop adjustment
+    min_profit_for_trailing: float = 1.0  # Minimum profit % before trailing starts
 
     # Signal filtering
     min_confidence: float = 0.65
