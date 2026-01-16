@@ -245,12 +245,16 @@ class ORBStrategy:
                     self.strategy_config.trailing_stop_pct
                 )
 
-                # Only update if trailing stop is better
+                # Only update if trailing stop is better AND position is profitable
                 should_modify = False
-                if position.signal_type == SignalType.LONG and new_stop > position.current_stop_loss:
-                    should_modify = True
-                elif position.signal_type == SignalType.SHORT and new_stop < position.current_stop_loss:
-                    should_modify = True
+                if position.signal_type == SignalType.LONG:
+                    # For LONG: trail only if price is above entry and new stop is better
+                    if current_price > position.entry_price and new_stop > position.current_stop_loss:
+                        should_modify = True
+                elif position.signal_type == SignalType.SHORT:
+                    # For SHORT: trail only if price is below entry and new stop is better
+                    if current_price < position.entry_price and new_stop < position.current_stop_loss:
+                        should_modify = True
 
                 if should_modify:
                     # Queue modification for processing in async monitoring cycle
