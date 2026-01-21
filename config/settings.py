@@ -42,6 +42,8 @@ class ORBStrategyConfig:
     risk_per_trade_pct: float = 30.0
     max_positions: int = 3
 
+    intraday_margin_multiplier: float = 3.0  # 5x intraday margin allowed
+
     # ORB specific parameters
     orb_period_minutes: int = 15  # Opening range period
     min_breakout_volume: float = 3.0  # Volume multiplier for breakouts

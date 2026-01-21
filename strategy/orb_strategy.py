@@ -540,7 +540,8 @@ class ORBStrategy:
                 self.strategy_config.portfolio_value,
                 self.strategy_config.risk_per_trade_pct,
                 signal.entry_price,
-                signal.stop_loss
+                signal.stop_loss,
+                self.strategy_config.intraday_margin_multiplier
             )
 
             if quantity <= 0:

@@ -707,10 +707,11 @@ class ORBTechnicalAnalysisService:
             return False, 0.0, {'error': str(e)}
 
     def calculate_position_size(self, portfolio_value: float, risk_per_trade_pct: float,
-                                entry_price: float, stop_loss: float) -> int:
+                                entry_price: float, stop_loss: float, margin_multiplier: float) -> int:
         """Calculate appropriate position size based on risk management"""
         try:
-            risk_amount = portfolio_value * (risk_per_trade_pct / 100)
+            leveraged_portfolio = portfolio_value * margin_multiplier
+            risk_amount = leveraged_portfolio * (risk_per_trade_pct / 100)
             # price_risk = abs(entry_price - stop_loss) // Old Code logic
             price_risk = abs(entry_price)
 
@@ -718,7 +719,12 @@ class ORBTechnicalAnalysisService:
                 return 0
 
             quantity = int(risk_amount / price_risk)
-            logger.info(f"portfolio_value: {portfolio_value}, risk_per_trade_pct: {risk_per_trade_pct}, risk_amount: {risk_amount}, price_risk: {price_risk}, quantity: {quantity}")
+
+            # Calculate actual position value for logging
+            position_value = quantity * entry_price
+            margin_required = position_value / margin_multiplier
+
+            logger.info(f"portfolio_value: {portfolio_value}, risk_per_trade_pct: {risk_per_trade_pct}, risk_amount: {risk_amount}, price_risk: {price_risk}, quantity: {quantity}, margin_required: {margin_required}")
             return max(quantity, 0)
 
         except Exception as e:
