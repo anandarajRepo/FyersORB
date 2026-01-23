@@ -242,7 +242,8 @@ class ORBStrategy:
                     current_price,
                     position.highest_price,
                     position.lowest_price,
-                    self.strategy_config.trailing_stop_pct
+                    self.strategy_config.trailing_stop_pct,
+                    self.strategy_config.min_profit_for_trailing
                 )
 
                 # Only update if trailing stop is better AND position is profitable
