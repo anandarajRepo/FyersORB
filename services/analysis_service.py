@@ -10,7 +10,7 @@ import logging
 from typing import Dict, List, Tuple, Any
 from datetime import datetime, timedelta
 from fyers_apiv3 import fyersModel
-from models.trading_models import LiveQuote, OpenRange, ORBSignal
+from models.trading_models import LiveQuote, OpenRange, ORBSignal, FairValueGap
 from config.settings import SignalType, Sector
 from config.symbols import convert_to_fyers_format
 
@@ -764,3 +764,242 @@ class ORBTechnicalAnalysisService:
         except Exception as e:
             logger.error(f"Error checking position allowance: {e}")
             return False
+
+    def fetch_recent_candles(self, symbol: str, timeframe: str = "5", lookback_candles: int = 20) -> List[List]:
+        """
+        Fetch recent candles for FVG detection
+        Returns list of candles: [[timestamp, open, high, low, close, volume], ...]
+        """
+        try:
+            if not self.fyers_client:
+                logger.warning(f"Fyers client not initialized, cannot fetch candles for {symbol}")
+                return []
+
+            # Convert symbol to Fyers format
+            fyers_symbol = convert_to_fyers_format(symbol)
+            if not fyers_symbol:
+                logger.error(f"Could not convert symbol {symbol} to Fyers format")
+                return []
+
+            # Calculate date range
+            end_date = datetime.now()
+            # For 5-min candles, fetch 2 days worth to ensure we get enough data
+            start_date = end_date - timedelta(days=2)
+
+            # Prepare data for Fyers history API
+            data = {
+                "symbol": fyers_symbol,
+                "resolution": timeframe,  # 5-minute candles
+                "date_format": "1",  # Unix timestamp format
+                "range_from": start_date.strftime("%Y-%m-%d"),
+                "range_to": end_date.strftime("%Y-%m-%d"),
+                "cont_flag": "1"
+            }
+
+            # Fetch historical data
+            response = self.fyers_client.history(data=data)
+
+            if response and response.get('s') == 'ok':
+                candles = response.get('candles', [])
+                if len(candles) == 0:
+                    logger.warning(f"No candle data returned for {symbol}")
+                    return []
+
+                # Return last 'lookback_candles' candles
+                recent_candles = candles[-lookback_candles:] if len(candles) > lookback_candles else candles
+                logger.debug(f"Fetched {len(recent_candles)} candles for {symbol} (timeframe: {timeframe}min)")
+                return recent_candles
+            else:
+                error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                logger.error(f"Failed to fetch candle data for {symbol}: {error_msg}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error fetching recent candles for {symbol}: {e}")
+            return []
+
+    def detect_fair_value_gaps(self, symbol: str, candles: List[List], min_gap_size_pct: float = 0.3) -> List[FairValueGap]:
+        """
+        Detect Fair Value Gaps in candle data
+        FVG Pattern:
+        - Bullish FVG: candle[1].high < candle[3].low (gap up - unfilled space)
+        - Bearish FVG: candle[1].low > candle[3].high (gap down - unfilled space)
+
+        Returns list of FairValueGap objects
+        """
+        try:
+            fvg_list = []
+
+            if len(candles) < 3:
+                return fvg_list
+
+            # Analyze candles in sets of 3
+            # candles format: [timestamp, open, high, low, close, volume]
+            for i in range(len(candles) - 2):
+                candle1 = candles[i]
+                candle2 = candles[i + 1]  # Middle candle (impulse candle)
+                candle3 = candles[i + 2]
+
+                # Extract OHLC from candles
+                c1_high = float(candle1[2])
+                c1_low = float(candle1[3])
+                c3_high = float(candle3[2])
+                c3_low = float(candle3[3])
+                c3_close = float(candle3[4])
+
+                # Check for Bullish FVG (gap up)
+                if c1_high < c3_low:
+                    gap_size = c3_low - c1_high
+                    gap_size_pct = (gap_size / c3_close) * 100
+
+                    # Only consider significant gaps
+                    if gap_size_pct >= min_gap_size_pct:
+                        fvg = FairValueGap(
+                            symbol=symbol,
+                            gap_type="BULLISH",
+                            gap_high=c3_low,
+                            gap_low=c1_high,
+                            gap_size=gap_size,
+                            candle1_index=i,
+                            candle3_index=i + 2,
+                            timeframe="5min"
+                        )
+                        fvg_list.append(fvg)
+                        logger.debug(f"Bullish FVG detected for {symbol}: {c1_high:.2f} - {c3_low:.2f} ({gap_size_pct:.2f}%)")
+
+                # Check for Bearish FVG (gap down)
+                elif c1_low > c3_high:
+                    gap_size = c1_low - c3_high
+                    gap_size_pct = (gap_size / c3_close) * 100
+
+                    # Only consider significant gaps
+                    if gap_size_pct >= min_gap_size_pct:
+                        fvg = FairValueGap(
+                            symbol=symbol,
+                            gap_type="BEARISH",
+                            gap_high=c1_low,
+                            gap_low=c3_high,
+                            gap_size=gap_size,
+                            candle1_index=i,
+                            candle3_index=i + 2,
+                            timeframe="5min"
+                        )
+                        fvg_list.append(fvg)
+                        logger.debug(f"Bearish FVG detected for {symbol}: {c3_high:.2f} - {c1_low:.2f} ({gap_size_pct:.2f}%)")
+
+            logger.info(f"Detected {len(fvg_list)} Fair Value Gaps for {symbol}")
+            return fvg_list
+
+        except Exception as e:
+            logger.error(f"Error detecting FVG for {symbol}: {e}")
+            return []
+
+    def validate_entry_with_fvg(self, symbol: str, entry_price: float, signal_type: SignalType,
+                                fvg_settings: Dict[str, Any]) -> Tuple[bool, float, Dict[str, Any]]:
+        """
+        Validate entry against Fair Value Gaps
+
+        Args:
+            symbol: Trading symbol
+            entry_price: Proposed entry price
+            signal_type: LONG or SHORT
+            fvg_settings: FVG configuration dict with keys:
+                - enable_fvg_check: bool
+                - fvg_timeframe: str
+                - fvg_lookback_candles: int
+                - fvg_min_gap_size_pct: float
+                - fvg_filter_mode: str (STRICT, LENIENT, ALIGNED)
+
+        Returns:
+            (is_valid, confidence_adjustment, fvg_info)
+        """
+        try:
+            # Check if FVG filtering is enabled
+            if not fvg_settings.get('enable_fvg_check', False):
+                return True, 1.0, {'fvg_check': 'disabled'}
+
+            # Fetch recent candles
+            candles = self.fetch_recent_candles(
+                symbol,
+                timeframe=fvg_settings.get('fvg_timeframe', '5'),
+                lookback_candles=fvg_settings.get('fvg_lookback_candles', 20)
+            )
+
+            if not candles:
+                logger.warning(f"No candles available for FVG check - allowing trade by default")
+                return True, 1.0, {'fvg_check': 'no_data'}
+
+            # Detect FVG patterns
+            fvg_list = self.detect_fair_value_gaps(
+                symbol,
+                candles,
+                min_gap_size_pct=fvg_settings.get('fvg_min_gap_size_pct', 0.3)
+            )
+
+            if not fvg_list:
+                return True, 1.0, {'fvg_check': 'no_gaps_detected', 'fvg_count': 0}
+
+            # Check if entry price is in any FVG zone
+            fvg_info = {
+                'fvg_count': len(fvg_list),
+                'fvg_zones': [],
+                'in_fvg_zone': False,
+                'fvg_aligned': False
+            }
+
+            for fvg in fvg_list:
+                fvg_zone_info = {
+                    'type': fvg.gap_type,
+                    'high': fvg.gap_high,
+                    'low': fvg.gap_low,
+                    'size_pct': (fvg.gap_size / entry_price) * 100
+                }
+                fvg_info['fvg_zones'].append(fvg_zone_info)
+
+                # Check if price is in this FVG
+                if fvg.is_price_in_gap(entry_price):
+                    fvg_info['in_fvg_zone'] = True
+                    fvg_info['active_fvg'] = fvg_zone_info
+
+                    # Check if FVG aligns with trade direction
+                    if (signal_type == SignalType.LONG and fvg.gap_type == "BULLISH") or \
+                       (signal_type == SignalType.SHORT and fvg.gap_type == "BEARISH"):
+                        fvg_info['fvg_aligned'] = True
+
+            # Apply filtering based on mode
+            filter_mode = fvg_settings.get('fvg_filter_mode', 'STRICT')
+
+            if filter_mode == "STRICT":
+                # Block all trades if price is in any FVG zone
+                if fvg_info['in_fvg_zone']:
+                    logger.warning(f"STRICT FVG: Blocking {signal_type.value} entry for {symbol} at {entry_price:.2f} - Price in FVG zone")
+                    return False, 0.0, fvg_info
+                return True, 1.0, fvg_info
+
+            elif filter_mode == "LENIENT":
+                # Reduce confidence if in FVG, but don't block
+                if fvg_info['in_fvg_zone']:
+                    confidence_penalty = 0.7  # Reduce confidence by 30%
+                    logger.info(f"LENIENT FVG: Reducing confidence for {symbol} - Price in FVG zone (penalty: {confidence_penalty})")
+                    return True, confidence_penalty, fvg_info
+                return True, 1.0, fvg_info
+
+            elif filter_mode == "ALIGNED":
+                # Only allow trades if FVG aligns with trade direction
+                if fvg_info['in_fvg_zone']:
+                    if fvg_info['fvg_aligned']:
+                        logger.info(f"ALIGNED FVG: Allowing {signal_type.value} entry for {symbol} - FVG supports trade direction")
+                        return True, 1.1, fvg_info  # Slight confidence boost
+                    else:
+                        logger.warning(f"ALIGNED FVG: Blocking {signal_type.value} entry for {symbol} - FVG opposes trade direction")
+                        return False, 0.0, fvg_info
+                return True, 1.0, fvg_info
+
+            else:
+                logger.warning(f"Unknown FVG filter mode: {filter_mode}, allowing trade")
+                return True, 1.0, fvg_info
+
+        except Exception as e:
+            logger.error(f"Error in FVG validation for {symbol}: {e}")
+            # On error, allow trade but log the issue
+            return True, 1.0, {'fvg_check': 'error', 'error': str(e)}
