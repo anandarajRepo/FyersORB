@@ -281,6 +281,59 @@ class MarketState:
     daily_loss_limit_hit: bool = False
 
 
+@dataclass
+class FairValueGap:
+    """Fair Value Gap (FVG) - Price imbalance zone"""
+    symbol: str
+    gap_type: str  # "BULLISH" or "BEARISH"
+
+    # Gap zone boundaries
+    gap_high: float  # Upper boundary of the gap
+    gap_low: float   # Lower boundary of the gap
+    gap_size: float  # Size of the gap
+
+    # Candle information
+    candle1_index: int  # Index of first candle in the pattern
+    candle3_index: int  # Index of third candle in the pattern
+
+    # Gap metadata
+    is_filled: bool = False  # Whether the gap has been filled
+    fill_percentage: float = 0.0  # How much of the gap has been filled (0-100%)
+
+    # Timing
+    detected_at: datetime = field(default_factory=datetime.now)
+    timeframe: str = "5min"  # Timeframe where FVG was detected
+
+    def __post_init__(self):
+        self.gap_size = self.gap_high - self.gap_low
+
+    def check_if_filled(self, current_price: float) -> tuple[bool, float]:
+        """
+        Check if current price has filled the FVG
+        Returns: (is_filled, fill_percentage)
+        """
+        if self.gap_type == "BULLISH":
+            # Bullish FVG is filled when price comes back down into the gap
+            if current_price <= self.gap_low:
+                return True, 100.0
+            elif current_price < self.gap_high:
+                fill_pct = ((self.gap_high - current_price) / self.gap_size) * 100
+                return False, fill_pct
+        else:  # BEARISH
+            # Bearish FVG is filled when price comes back up into the gap
+            if current_price >= self.gap_high:
+                return True, 100.0
+            elif current_price > self.gap_low:
+                fill_pct = ((current_price - self.gap_low) / self.gap_size) * 100
+                return False, fill_pct
+
+        return False, 0.0
+
+    def is_price_in_gap(self, price: float) -> bool:
+        """Check if price is within the gap zone"""
+        return self.gap_low <= price <= self.gap_high
+
+
 # Utility functions for working with the updated models
 def create_orb_signal_from_symbol(symbol: str, signal_type: SignalType, **kwargs) -> ORBSignal:
     """Create ORB signal with automatic category detection"""

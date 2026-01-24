@@ -485,6 +485,29 @@ class ORBStrategy:
             if not is_valid:
                 return None
 
+            # Fair Value Gap (FVG) Check
+            fvg_settings = {
+                'enable_fvg_check': self.strategy_config.enable_fvg_check,
+                'fvg_timeframe': self.strategy_config.fvg_timeframe,
+                'fvg_lookback_candles': self.strategy_config.fvg_lookback_candles,
+                'fvg_min_gap_size_pct': self.strategy_config.fvg_min_gap_size_pct,
+                'fvg_filter_mode': self.strategy_config.fvg_filter_mode
+            }
+
+            fvg_valid, fvg_confidence_adj, fvg_info = self.analysis_service.validate_entry_with_fvg(
+                symbol, live_quote.ltp, signal_type, fvg_settings
+            )
+
+            if not fvg_valid:
+                logger.warning(f"FVG Check Failed for {symbol}: {fvg_info}")
+                return None
+
+            # Adjust confidence based on FVG analysis
+            confidence = confidence * fvg_confidence_adj
+
+            logger.info(f"FVG Check Passed for {symbol}: confidence_adj={fvg_confidence_adj:.2f}, "
+                       f"adjusted_confidence={confidence:.2f}, fvg_info={fvg_info}")
+
             # Calculate entry parameters
             entry_price = live_quote.ltp
             stop_loss = self.analysis_service.calculate_stop_loss_level(
