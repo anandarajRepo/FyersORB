@@ -66,7 +66,7 @@ class ORBStrategyConfig:
     partial_exit_pct: float = 50.0  # % to exit at first target
 
     # Fair Value Gap (FVG) settings
-    enable_fvg_check: bool = True  # Enable/disable FVG filtering
+    enable_fvg_check: bool = False  # Enable/disable FVG filtering
     fvg_timeframe: str = "5"  # Timeframe for FVG detection (5min candles)
     fvg_lookback_candles: int = 20  # Number of candles to analyze for FVG
     fvg_min_gap_size_pct: float = 0.3  # Minimum gap size as % of price
