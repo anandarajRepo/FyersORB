@@ -12,6 +12,7 @@ from fyers_apiv3 import fyersModel
 
 from config.settings import FyersConfig, SignalType
 from models.trading_models import Position, ORBSignal
+from utils import round_to_tick_size
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,9 @@ class OrderManager:
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
+            # Round stop price to tick size for exchange compliance
+            rounded_stop = round_to_tick_size(position.stop_loss)
+
             # Prepare stop loss order data
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
@@ -112,7 +116,7 @@ class OrderManager:
                 "side": side,
                 "productType": "INTRADAY",
                 "limitPrice": 0,
-                "stopPrice": round(position.stop_loss),
+                "stopPrice": rounded_stop,
                 "validity": "DAY",
                 "disclosedQty": 0,
                 "offlineOrder": False
@@ -162,6 +166,9 @@ class OrderManager:
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
+            # Round target price to tick size for exchange compliance
+            rounded_target = round_to_tick_size(position.target_price)
+
             # Prepare target order data
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
@@ -169,7 +176,7 @@ class OrderManager:
                 "type": 1,  # Limit order
                 "side": side,
                 "productType": "INTRADAY",
-                "limitPrice": round(position.target_price),
+                "limitPrice": rounded_target,
                 "stopPrice": 0,
                 "validity": "DAY",
                 "disclosedQty": 0,
@@ -284,11 +291,14 @@ class OrderManager:
                 logger.warning(f"No stop loss order to modify for {position.symbol}")
                 return False
 
+            # Round to tick size for exchange compliance
+            rounded_stop = round_to_tick_size(new_stop)
+
             # Prepare modification data
             modify_data = {
                 "id": position.sl_order_id,
                 "type": 3,  # Stop loss order
-                "stopPrice": new_stop,
+                "stopPrice": rounded_stop,
                 "qty": abs(position.quantity),
                 "limitPrice": 0,
                 "validity": "DAY",
@@ -296,14 +306,14 @@ class OrderManager:
             }
 
             logger.info(f"Modifying stop loss for {position.symbol}: "
-                        f"Order ID={position.sl_order_id}, New Stop={new_stop}")
+                        f"Order ID={position.sl_order_id}, New Stop={rounded_stop}")
 
             # Modify order via Fyers API
             response = self.fyers.modify_order(data=modify_data)
 
             if response and response.get('s') == 'ok':
                 logger.info(f"Stop loss modified successfully")
-                position.current_stop_loss = new_stop
+                position.current_stop_loss = rounded_stop
                 return True
             else:
                 error_msg = response.get('message', 'Unknown error')
