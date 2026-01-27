@@ -33,6 +33,9 @@ class OrderManager:
         # Order tracking
         self.placed_orders: Dict[str, Dict[str, Any]] = {}
 
+        # Circuit limit cache (symbol -> {lower_circuit, upper_circuit, timestamp})
+        self._circuit_limit_cache: Dict[str, Dict[str, Any]] = {}
+
     async def place_entry_order(self, position: Position) -> bool:
         """
         Place entry order for a new position
@@ -123,7 +126,7 @@ class OrderManager:
             }
 
             logger.info(f"Placing stop loss order for {position.symbol}: "
-                        f"Side={side}, Qty={abs(position.quantity)}, Stop={position.stop_loss}")
+                        f"Side={side}, Qty={abs(position.quantity)}, Stop={rounded_stop:.2f}")
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -169,6 +172,21 @@ class OrderManager:
             # Round target price to tick size for exchange compliance
             rounded_target = round_to_tick_size(position.target_price)
 
+            # Validate target price is within circuit limits
+            if not self.validate_price_within_circuit(position.symbol, rounded_target, "target"):
+                # Get circuit limits for detailed logging
+                limits = self.get_circuit_limits(position.symbol)
+                if limits:
+                    logger.warning(f"Skipping target order for {position.symbol}: "
+                                  f"Target {rounded_target:.2f} is outside circuit limits "
+                                  f"[{limits['lower_circuit']:.2f} - {limits['upper_circuit']:.2f}]. "
+                                  f"Position will rely on stop loss and time-based exit.")
+                else:
+                    logger.warning(f"Skipping target order for {position.symbol}: "
+                                  f"Target {rounded_target:.2f} is outside circuit limits. "
+                                  f"Position will rely on stop loss and time-based exit.")
+                return False
+
             # Prepare target order data
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
@@ -184,7 +202,7 @@ class OrderManager:
             }
 
             logger.info(f"Placing target order for {position.symbol}: "
-                        f"Side={side}, Qty={abs(position.quantity)}, Target={position.target_price}")
+                        f"Side={side}, Qty={abs(position.quantity)}, Target={rounded_target:.2f}")
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -408,6 +426,104 @@ class OrderManager:
         except Exception as e:
             logger.error(f"Error getting order status for {order_id}: {e}")
             return None
+
+    def get_circuit_limits(self, symbol: str) -> Optional[Dict[str, float]]:
+        """
+        Get circuit limits for a symbol from Fyers API
+
+        Args:
+            symbol: Display symbol (e.g., 'STYL')
+
+        Returns:
+            Dict with 'lower_circuit' and 'upper_circuit' or None if unavailable
+        """
+        try:
+            fyers_symbol = self._get_fyers_symbol(symbol)
+
+            # Check cache first (cache for 5 minutes)
+            if symbol in self._circuit_limit_cache:
+                cached = self._circuit_limit_cache[symbol]
+                cache_age = (datetime.now() - cached['timestamp']).total_seconds()
+                if cache_age < 300:  # 5 minute cache
+                    return {
+                        'lower_circuit': cached['lower_circuit'],
+                        'upper_circuit': cached['upper_circuit']
+                    }
+
+            # Fetch quotes from Fyers API
+            data = {"symbols": fyers_symbol}
+            response = self.fyers.quotes(data=data)
+
+            if response and response.get('s') == 'ok':
+                quotes = response.get('d', [])
+                if quotes and len(quotes) > 0:
+                    quote = quotes[0].get('v', {})
+                    lower_circuit = quote.get('low_price', 0)  # Lower circuit limit
+                    upper_circuit = quote.get('high_price', 0)  # Upper circuit limit
+
+                    # Fyers returns circuit limits in 'low_price' and 'high_price' for the day
+                    # For more accurate circuit limits, check if 'lc' and 'uc' exist
+                    if 'lc' in quote:
+                        lower_circuit = quote['lc']
+                    if 'uc' in quote:
+                        upper_circuit = quote['uc']
+
+                    # Cache the result
+                    self._circuit_limit_cache[symbol] = {
+                        'lower_circuit': lower_circuit,
+                        'upper_circuit': upper_circuit,
+                        'timestamp': datetime.now()
+                    }
+
+                    logger.debug(f"Circuit limits for {symbol}: Lower={lower_circuit}, Upper={upper_circuit}")
+                    return {
+                        'lower_circuit': lower_circuit,
+                        'upper_circuit': upper_circuit
+                    }
+
+            logger.warning(f"Could not fetch circuit limits for {symbol}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching circuit limits for {symbol}: {e}")
+            return None
+
+    def validate_price_within_circuit(self, symbol: str, price: float, price_type: str = "price") -> bool:
+        """
+        Check if a price is within circuit limits
+
+        Args:
+            symbol: Display symbol
+            price: Price to validate
+            price_type: Description for logging (e.g., "target", "stop_loss")
+
+        Returns:
+            True if price is within limits or limits unavailable, False otherwise
+        """
+        try:
+            limits = self.get_circuit_limits(symbol)
+            if not limits:
+                # If we can't get limits, allow the order (exchange will reject if invalid)
+                return True
+
+            lower = limits['lower_circuit']
+            upper = limits['upper_circuit']
+
+            if lower > 0 and price < lower:
+                logger.warning(f"{price_type.title()} price {price:.2f} for {symbol} is below "
+                              f"lower circuit limit {lower:.2f}")
+                return False
+
+            if upper > 0 and price > upper:
+                logger.warning(f"{price_type.title()} price {price:.2f} for {symbol} is above "
+                              f"upper circuit limit {upper:.2f}")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating circuit limits for {symbol}: {e}")
+            return True  # Allow order on error, exchange will validate
 
     def _get_fyers_symbol(self, symbol: str) -> str:
         """
