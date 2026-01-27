@@ -579,11 +579,7 @@ class ORBStrategy:
                 order_id=f"ORB_{signal.symbol}_{int(datetime.now().timestamp())}"
             )
 
-            # Store position
-            self.positions[signal.symbol] = position
-            self.signals_generated_today.append(signal)
-
-            logger.info(f"ORB Position Opened: {signal.symbol} ({signal.category}) {signal.signal_type.value} - "
+            logger.info(f"ORB Signal triggered: {signal.symbol} ({signal.category}) {signal.signal_type.value} - "
                         f"Qty: {abs(quantity)}, Entry: Rs.{signal.entry_price:.2f}, "
                         f"Range: Rs.{signal.range_low:.2f}-{signal.range_high:.2f}")
 
