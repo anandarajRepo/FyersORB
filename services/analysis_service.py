@@ -13,6 +13,7 @@ from fyers_apiv3 import fyersModel
 from models.trading_models import LiveQuote, OpenRange, ORBSignal, FairValueGap
 from config.settings import SignalType, Sector
 from config.symbols import convert_to_fyers_format
+from utils import round_to_tick_size
 
 logger = logging.getLogger(__name__)
 
@@ -451,15 +452,16 @@ class ORBTechnicalAnalysisService:
             if signal_type == SignalType.LONG:
                 # For long positions, stop loss below range low
                 stop_loss = opening_range.low * (1 - buffer_pct / 100)
-                return stop_loss
             else:
                 # For short positions, stop loss above range high
                 stop_loss = opening_range.high * (1 + buffer_pct / 100)
-                return stop_loss
+
+            # Round to tick size for exchange compliance
+            return round_to_tick_size(stop_loss)
 
         except Exception as e:
             logger.error(f"Error calculating stop loss level: {e}")
-            return breakout_price
+            return round_to_tick_size(breakout_price)
 
     def calculate_target_price(self, signal_type: SignalType, entry_price: float,
                                stop_loss: float, target_multiplier: float = 2.0) -> float:
@@ -472,11 +474,12 @@ class ORBTechnicalAnalysisService:
             else:
                 target_price = entry_price - (risk_amount * target_multiplier)
 
-            return target_price
+            # Round to tick size for exchange compliance
+            return round_to_tick_size(target_price)
 
         except Exception as e:
             logger.error(f"Error calculating target price: {e}")
-            return entry_price
+            return round_to_tick_size(entry_price)
 
     def calculate_trailing_stop(self, signal_type: SignalType, entry_price: float,
                                 current_price: float, highest_price: float,
@@ -505,13 +508,13 @@ class ORBTechnicalAnalysisService:
                 if profit_pct < min_profit_pct:
                     # Not profitable enough - don't trail yet
                     # Return the original stop loss (calculated elsewhere)
-                    return entry_price * 0.985  # Original stop loss (example: 1.5% below entry)
+                    return round_to_tick_size(entry_price * 0.985)
 
                 # Calculate trailing stop below highest price
                 trailing_stop = highest_price * (1 - trailing_pct / 100)
 
                 # Never move stop below entry price
-                return max(trailing_stop, entry_price)
+                return round_to_tick_size(max(trailing_stop, entry_price))
 
             else:  # SHORT
                 # ONLY trail if position is profitable by minimum threshold
@@ -520,17 +523,17 @@ class ORBTechnicalAnalysisService:
                 if profit_pct < min_profit_pct:
                     # Not profitable enough - don't trail yet
                     # Return the original stop loss (calculated elsewhere)
-                    return entry_price * 1.015  # Original stop loss (example: 1.5% above entry)
+                    return round_to_tick_size(entry_price * 1.015)
 
                 # Calculate trailing stop above lowest price
                 trailing_stop = lowest_price * (1 + trailing_pct / 100)
 
                 # Never move stop below entry price (for SHORT, keep stop ABOVE entry)
-                return min(trailing_stop, entry_price)  # Use min() for SHORT, not max()
+                return round_to_tick_size(min(trailing_stop, entry_price))
 
         except Exception as e:
             logger.error(f"Error calculating trailing stop: {e}")
-            return entry_price
+            return round_to_tick_size(entry_price)
 
     def evaluate_breakout_quality(self, symbol: str, breakout_price: float,
                                   opening_range: OpenRange, signal_type: SignalType) -> Dict[str, float]:
