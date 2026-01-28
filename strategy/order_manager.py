@@ -240,9 +240,39 @@ class OrderManager:
             exit_price: Current market price (for logging)
 
         Returns:
-            bool: True if order placed successfully
+            bool: True if order placed successfully (or position already exited by broker)
         """
         try:
+            # CRITICAL FIX: Check if broker-side SL or target order has already been filled
+            # This prevents double exit orders when broker executes SL/target automatically
+            # and strategy also detects the exit condition
+
+            sl_already_filled = False
+            target_already_filled = False
+
+            if position.sl_order_id:
+                sl_already_filled = self.is_order_filled(position.sl_order_id)
+                if sl_already_filled:
+                    logger.info(f"SL order {position.sl_order_id} already filled for {position.symbol} - "
+                                f"skipping duplicate exit order")
+
+            if position.target_order_id and not sl_already_filled:
+                target_already_filled = self.is_order_filled(position.target_order_id)
+                if target_already_filled:
+                    logger.info(f"Target order {position.target_order_id} already filled for {position.symbol} - "
+                                f"skipping duplicate exit order")
+
+            # If either SL or target order is already filled, position is already closed
+            if sl_already_filled or target_already_filled:
+                # Cancel any remaining pending orders (the other one that didn't fill)
+                await self.cancel_pending_orders(position)
+                logger.info(f"Position {position.symbol} already exited via broker-side order")
+                return True  # Return True since position is effectively closed
+
+            # Cancel pending SL/Target orders FIRST before placing market exit
+            # This prevents race condition where broker might fill SL after our check
+            await self.cancel_pending_orders(position)
+
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
@@ -279,9 +309,6 @@ class OrderManager:
                 }
 
                 logger.info(f"Exit order placed successfully - Order ID: {order_id}")
-
-                # Cancel any pending SL/Target orders
-                await self.cancel_pending_orders(position)
 
                 return True
             else:
@@ -426,6 +453,40 @@ class OrderManager:
         except Exception as e:
             logger.error(f"Error getting order status for {order_id}: {e}")
             return None
+
+    def is_order_filled(self, order_id: str) -> bool:
+        """
+        Check if an order has been filled/traded
+
+        Fyers order status codes:
+        - 1: Cancelled
+        - 2: Traded/Filled
+        - 3: For future use
+        - 4: Transit
+        - 5: Rejected
+        - 6: Pending
+
+        Args:
+            order_id: Fyers order ID
+
+        Returns:
+            bool: True if order has been filled/traded
+        """
+        try:
+            order_status = self.get_order_status(order_id)
+
+            if order_status:
+                status = order_status.get('status')
+                # Status 2 = Traded/Filled
+                if status == 2:
+                    logger.info(f"Order {order_id} is already filled/traded")
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking if order {order_id} is filled: {e}")
+            return False
 
     def get_circuit_limits(self, symbol: str) -> Optional[Dict[str, float]]:
         """
