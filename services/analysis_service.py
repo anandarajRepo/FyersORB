@@ -505,7 +505,7 @@ class ORBTechnicalAnalysisService:
                 if profit_pct < min_profit_pct:
                     # Not profitable enough - don't trail yet
                     # Return the original stop loss (calculated elsewhere)
-                    return entry_price * 0.985  # Original stop loss (example: 1.5% below entry)
+                    return entry_price * 0.990  # Original stop loss (example: 1.5% below entry)
 
                 # Calculate trailing stop below highest price
                 trailing_stop = highest_price * (1 - trailing_pct / 100)
@@ -520,7 +520,7 @@ class ORBTechnicalAnalysisService:
                 if profit_pct < min_profit_pct:
                     # Not profitable enough - don't trail yet
                     # Return the original stop loss (calculated elsewhere)
-                    return entry_price * 1.015  # Original stop loss (example: 1.5% above entry)
+                    return entry_price * 1.010  # Original stop loss (example: 1.5% above entry)
 
                 # Calculate trailing stop above lowest price
                 trailing_stop = lowest_price * (1 + trailing_pct / 100)
