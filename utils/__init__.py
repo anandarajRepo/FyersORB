@@ -240,7 +240,7 @@ def format_percentage(value: float, decimal_places: int = 2) -> str:
     return f"{sign}{value:.{decimal_places}f}%"
 
 
-def round_to_tick_size(price: float, tick_size: float = 0.05) -> float:
+def round_to_tick_size(price: float, tick_size: float = 0.10) -> float:
     """
     Round price to nearest valid tick size for exchange orders.
 
