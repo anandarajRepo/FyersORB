@@ -12,6 +12,7 @@ from fyers_apiv3 import fyersModel
 
 from config.settings import FyersConfig, SignalType
 from models.trading_models import Position, ORBSignal
+from utils import round_to_tick_size
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,9 @@ class OrderManager:
 
         # Order tracking
         self.placed_orders: Dict[str, Dict[str, Any]] = {}
+
+        # Circuit limit cache (symbol -> {lower_circuit, upper_circuit, timestamp})
+        self._circuit_limit_cache: Dict[str, Dict[str, Any]] = {}
 
     async def place_entry_order(self, position: Position) -> bool:
         """
@@ -104,6 +108,9 @@ class OrderManager:
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
+            # Round stop price to tick size for exchange compliance
+            rounded_stop = round_to_tick_size(position.stop_loss)
+
             # Prepare stop loss order data
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
@@ -112,14 +119,14 @@ class OrderManager:
                 "side": side,
                 "productType": "INTRADAY",
                 "limitPrice": 0,
-                "stopPrice": round(position.stop_loss),
+                "stopPrice": rounded_stop,
                 "validity": "DAY",
                 "disclosedQty": 0,
                 "offlineOrder": False
             }
 
             logger.info(f"Placing stop loss order for {position.symbol}: "
-                        f"Side={side}, Qty={abs(position.quantity)}, Stop={position.stop_loss}")
+                        f"Side={side}, Qty={abs(position.quantity)}, Stop={rounded_stop:.2f}")
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -162,6 +169,24 @@ class OrderManager:
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
+            # Round target price to tick size for exchange compliance
+            rounded_target = round_to_tick_size(position.target_price)
+
+            # Validate target price is within circuit limits
+            if not self.validate_price_within_circuit(position.symbol, rounded_target, "target"):
+                # Get circuit limits for detailed logging
+                limits = self.get_circuit_limits(position.symbol)
+                if limits:
+                    logger.warning(f"Skipping target order for {position.symbol}: "
+                                  f"Target {rounded_target:.2f} is outside circuit limits "
+                                  f"[{limits['lower_circuit']:.2f} - {limits['upper_circuit']:.2f}]. "
+                                  f"Position will rely on stop loss and time-based exit.")
+                else:
+                    logger.warning(f"Skipping target order for {position.symbol}: "
+                                  f"Target {rounded_target:.2f} is outside circuit limits. "
+                                  f"Position will rely on stop loss and time-based exit.")
+                return False
+
             # Prepare target order data
             order_data = {
                 "symbol": self._get_fyers_symbol(position.symbol),
@@ -169,7 +194,7 @@ class OrderManager:
                 "type": 1,  # Limit order
                 "side": side,
                 "productType": "INTRADAY",
-                "limitPrice": round(position.target_price),
+                "limitPrice": rounded_target,
                 "stopPrice": 0,
                 "validity": "DAY",
                 "disclosedQty": 0,
@@ -177,7 +202,7 @@ class OrderManager:
             }
 
             logger.info(f"Placing target order for {position.symbol}: "
-                        f"Side={side}, Qty={abs(position.quantity)}, Target={position.target_price}")
+                        f"Side={side}, Qty={abs(position.quantity)}, Target={rounded_target:.2f}")
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -215,9 +240,39 @@ class OrderManager:
             exit_price: Current market price (for logging)
 
         Returns:
-            bool: True if order placed successfully
+            bool: True if order placed successfully (or position already exited by broker)
         """
         try:
+            # CRITICAL FIX: Check if broker-side SL or target order has already been filled
+            # This prevents double exit orders when broker executes SL/target automatically
+            # and strategy also detects the exit condition
+
+            sl_already_filled = False
+            target_already_filled = False
+
+            if position.sl_order_id:
+                sl_already_filled = self.is_order_filled(position.sl_order_id)
+                if sl_already_filled:
+                    logger.info(f"SL order {position.sl_order_id} already filled for {position.symbol} - "
+                                f"skipping duplicate exit order")
+
+            if position.target_order_id and not sl_already_filled:
+                target_already_filled = self.is_order_filled(position.target_order_id)
+                if target_already_filled:
+                    logger.info(f"Target order {position.target_order_id} already filled for {position.symbol} - "
+                                f"skipping duplicate exit order")
+
+            # If either SL or target order is already filled, position is already closed
+            if sl_already_filled or target_already_filled:
+                # Cancel any remaining pending orders (the other one that didn't fill)
+                await self.cancel_pending_orders(position)
+                logger.info(f"Position {position.symbol} already exited via broker-side order")
+                return True  # Return True since position is effectively closed
+
+            # Cancel pending SL/Target orders FIRST before placing market exit
+            # This prevents race condition where broker might fill SL after our check
+            await self.cancel_pending_orders(position)
+
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
@@ -255,9 +310,6 @@ class OrderManager:
 
                 logger.info(f"Exit order placed successfully - Order ID: {order_id}")
 
-                # Cancel any pending SL/Target orders
-                await self.cancel_pending_orders(position)
-
                 return True
             else:
                 error_msg = response.get('message', 'Unknown error')
@@ -284,11 +336,14 @@ class OrderManager:
                 logger.warning(f"No stop loss order to modify for {position.symbol}")
                 return False
 
+            # Round to tick size for exchange compliance
+            rounded_stop = round_to_tick_size(new_stop)
+
             # Prepare modification data
             modify_data = {
                 "id": position.sl_order_id,
                 "type": 3,  # Stop loss order
-                "stopPrice": new_stop,
+                "stopPrice": rounded_stop,
                 "qty": abs(position.quantity),
                 "limitPrice": 0,
                 "validity": "DAY",
@@ -296,14 +351,14 @@ class OrderManager:
             }
 
             logger.info(f"Modifying stop loss for {position.symbol}: "
-                        f"Order ID={position.sl_order_id}, New Stop={new_stop}")
+                        f"Order ID={position.sl_order_id}, New Stop={rounded_stop}")
 
             # Modify order via Fyers API
             response = self.fyers.modify_order(data=modify_data)
 
             if response and response.get('s') == 'ok':
                 logger.info(f"Stop loss modified successfully")
-                position.current_stop_loss = new_stop
+                position.current_stop_loss = rounded_stop
                 return True
             else:
                 error_msg = response.get('message', 'Unknown error')
@@ -398,6 +453,138 @@ class OrderManager:
         except Exception as e:
             logger.error(f"Error getting order status for {order_id}: {e}")
             return None
+
+    def is_order_filled(self, order_id: str) -> bool:
+        """
+        Check if an order has been filled/traded
+
+        Fyers order status codes:
+        - 1: Cancelled
+        - 2: Traded/Filled
+        - 3: For future use
+        - 4: Transit
+        - 5: Rejected
+        - 6: Pending
+
+        Args:
+            order_id: Fyers order ID
+
+        Returns:
+            bool: True if order has been filled/traded
+        """
+        try:
+            order_status = self.get_order_status(order_id)
+
+            if order_status:
+                status = order_status.get('status')
+                # Status 2 = Traded/Filled
+                if status == 2:
+                    logger.info(f"Order {order_id} is already filled/traded")
+                    return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking if order {order_id} is filled: {e}")
+            return False
+
+    def get_circuit_limits(self, symbol: str) -> Optional[Dict[str, float]]:
+        """
+        Get circuit limits for a symbol from Fyers API
+
+        Args:
+            symbol: Display symbol (e.g., 'STYL')
+
+        Returns:
+            Dict with 'lower_circuit' and 'upper_circuit' or None if unavailable
+        """
+        try:
+            fyers_symbol = self._get_fyers_symbol(symbol)
+
+            # Check cache first (cache for 5 minutes)
+            if symbol in self._circuit_limit_cache:
+                cached = self._circuit_limit_cache[symbol]
+                cache_age = (datetime.now() - cached['timestamp']).total_seconds()
+                if cache_age < 300:  # 5 minute cache
+                    return {
+                        'lower_circuit': cached['lower_circuit'],
+                        'upper_circuit': cached['upper_circuit']
+                    }
+
+            # Fetch quotes from Fyers API
+            data = {"symbols": fyers_symbol}
+            response = self.fyers.quotes(data=data)
+
+            if response and response.get('s') == 'ok':
+                quotes = response.get('d', [])
+                if quotes and len(quotes) > 0:
+                    quote = quotes[0].get('v', {})
+                    lower_circuit = quote.get('low_price', 0)  # Lower circuit limit
+                    upper_circuit = quote.get('high_price', 0)  # Upper circuit limit
+
+                    # Fyers returns circuit limits in 'low_price' and 'high_price' for the day
+                    # For more accurate circuit limits, check if 'lc' and 'uc' exist
+                    if 'lc' in quote:
+                        lower_circuit = quote['lc']
+                    if 'uc' in quote:
+                        upper_circuit = quote['uc']
+
+                    # Cache the result
+                    self._circuit_limit_cache[symbol] = {
+                        'lower_circuit': lower_circuit,
+                        'upper_circuit': upper_circuit,
+                        'timestamp': datetime.now()
+                    }
+
+                    logger.debug(f"Circuit limits for {symbol}: Lower={lower_circuit}, Upper={upper_circuit}")
+                    return {
+                        'lower_circuit': lower_circuit,
+                        'upper_circuit': upper_circuit
+                    }
+
+            logger.warning(f"Could not fetch circuit limits for {symbol}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching circuit limits for {symbol}: {e}")
+            return None
+
+    def validate_price_within_circuit(self, symbol: str, price: float, price_type: str = "price") -> bool:
+        """
+        Check if a price is within circuit limits
+
+        Args:
+            symbol: Display symbol
+            price: Price to validate
+            price_type: Description for logging (e.g., "target", "stop_loss")
+
+        Returns:
+            True if price is within limits or limits unavailable, False otherwise
+        """
+        try:
+            limits = self.get_circuit_limits(symbol)
+            if not limits:
+                # If we can't get limits, allow the order (exchange will reject if invalid)
+                return True
+
+            lower = limits['lower_circuit']
+            upper = limits['upper_circuit']
+
+            if lower > 0 and price < lower:
+                logger.warning(f"{price_type.title()} price {price:.2f} for {symbol} is below "
+                              f"lower circuit limit {lower:.2f}")
+                return False
+
+            if upper > 0 and price > upper:
+                logger.warning(f"{price_type.title()} price {price:.2f} for {symbol} is above "
+                              f"upper circuit limit {upper:.2f}")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error validating circuit limits for {symbol}: {e}")
+            return True  # Allow order on error, exchange will validate
 
     def _get_fyers_symbol(self, symbol: str) -> str:
         """

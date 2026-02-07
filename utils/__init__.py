@@ -240,6 +240,28 @@ def format_percentage(value: float, decimal_places: int = 2) -> str:
     return f"{sign}{value:.{decimal_places}f}%"
 
 
+def round_to_tick_size(price: float, tick_size: float = 0.05) -> float:
+    """
+    Round price to nearest valid tick size for exchange orders.
+
+    For Indian equity markets (NSE/BSE), the standard tick size is 0.05.
+
+    Args:
+        price: The price to round
+        tick_size: The tick size (default 0.05 for Indian equities)
+
+    Returns:
+        Price rounded to nearest tick size
+
+    Example:
+        303.04 -> 303.05 (rounded to nearest 0.05)
+        303.02 -> 303.00 (rounded to nearest 0.05)
+    """
+    if tick_size <= 0:
+        return price
+    return round(round(price / tick_size) * tick_size, 2)
+
+
 def format_time_remaining(seconds: int) -> str:
     """Format seconds into human readable time"""
     if seconds <= 0:
