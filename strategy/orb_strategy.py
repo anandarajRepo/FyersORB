@@ -27,6 +27,7 @@ from models.trading_models import (
 from services.fyers_websocket_service import HybridORBDataService
 from services.analysis_service import ORBTechnicalAnalysisService
 from services.market_timing_service import MarketTimingService
+from services.momentum_service import MomentumScoringService
 from strategy.order_manager import OrderManager
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class ORBStrategy:
         self.data_service = HybridORBDataService(fyers_config, ws_config)
         self.analysis_service = ORBTechnicalAnalysisService(self.data_service)
         self.timing_service = MarketTimingService(trading_config)
+        self.momentum_service = MomentumScoringService(fyers_config)
 
         # ADD THIS LINE:
         self.order_manager = OrderManager(fyers_config)
@@ -79,6 +81,10 @@ class ORBStrategy:
         # Real-time data tracking
         self.live_quotes: Dict[str, LiveQuote] = {}
         self.opening_ranges: Dict[str, OpenRange] = {}
+
+        # Momentum-filtered trading universe
+        self.momentum_filtered_symbols: List[str] = []
+        self.momentum_screening_done: bool = False
 
         # ===== NEW: State tracking for breakout transitions =====
         # Track breakout state for each symbol
@@ -109,6 +115,9 @@ class ORBStrategy:
 
             logger.info("Broker connection verified")
 
+            # Run momentum screening before market data connection
+            self._run_momentum_screening()
+
             # Connect to data service
             if not self.data_service.connect():
                 logger.error("Failed to connect to data service")
@@ -126,16 +135,64 @@ class ORBStrategy:
             # Log strategy configuration
             logger.info(f"ORB Strategy initialized successfully:")
             logger.info(f"  Total symbols: {len(symbols)}")
+            logger.info(f"  Momentum filter: {'ENABLED' if self.strategy_config.enable_momentum_filter else 'DISABLED'}")
+            if self.strategy_config.enable_momentum_filter:
+                logger.info(f"  Momentum-qualified symbols: {len(self.momentum_filtered_symbols)}")
+                logger.info(f"  Momentum min score: {self.strategy_config.min_momentum_score}")
+                logger.info(f"  Momentum top N: {self.strategy_config.momentum_top_n}")
             logger.info(f"  Max positions: {self.strategy_config.max_positions}")
             logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
             logger.info(f"  Signal processing: Event-based (transition detection)")
-            logger.info("  Position allocation: Based on signal quality only (no category limits)")
+            logger.info("  Position allocation: Based on signal quality + momentum (no category limits)")
 
             return True
 
         except Exception as e:
             logger.error(f"Strategy initialization failed: {e}")
             return False
+
+    def _run_momentum_screening(self):
+        """
+        Run momentum screening on the full trading universe.
+        Filters stocks to only those with good recent momentum.
+        Called during initialization (before market open).
+        """
+        try:
+            if not self.strategy_config.enable_momentum_filter:
+                logger.info("Momentum filter disabled - all symbols eligible for trading")
+                self.momentum_filtered_symbols = list(self.trading_symbols)
+                self.momentum_screening_done = True
+                return
+
+            logger.info("=" * 60)
+            logger.info("RUNNING PRE-MARKET MOMENTUM SCREENING")
+            logger.info("=" * 60)
+
+            top_stocks = self.momentum_service.screen_all_symbols(
+                min_score=self.strategy_config.min_momentum_score,
+                top_n=self.strategy_config.momentum_top_n,
+                lookback_days=self.strategy_config.momentum_lookback_days
+            )
+
+            self.momentum_filtered_symbols = [s.symbol for s in top_stocks]
+            self.momentum_screening_done = True
+
+            if self.momentum_filtered_symbols:
+                logger.info(f"Momentum screening selected {len(self.momentum_filtered_symbols)} stocks:")
+                for i, s in enumerate(top_stocks, 1):
+                    logger.info(f"  #{i} {s.symbol}: Score={s.composite_score:.1f}/100 "
+                                f"ROC5d={s.roc_5d:+.1f}% RSI={s.rsi_14:.0f} "
+                                f"Close=Rs.{s.last_close:.2f}")
+            else:
+                logger.warning("No stocks passed momentum filter - falling back to full universe")
+                self.momentum_filtered_symbols = list(self.trading_symbols)
+
+            logger.info("=" * 60)
+
+        except Exception as e:
+            logger.error(f"Momentum screening failed: {e} - falling back to full universe")
+            self.momentum_filtered_symbols = list(self.trading_symbols)
+            self.momentum_screening_done = True
 
     def _on_live_data_update(self, symbol: str, live_quote: LiveQuote):
         """
@@ -393,7 +450,8 @@ class ORBStrategy:
         """
         MODIFIED: Scan for breakout signals - now only processes pending transitions
         This is the key change: instead of checking all symbols repeatedly,
-        we only check symbols that have had a state transition
+        we only check symbols that have had a state transition.
+        Additionally filters by momentum score when momentum filter is enabled.
         """
         try:
             # NEW: Check if there are any pending breakout symbols
@@ -409,7 +467,7 @@ class ORBStrategy:
                 self.opening_ranges = self.data_service.get_all_opening_ranges()
                 logger.info(f"ORB period completed - {len(self.opening_ranges)} ranges calculated")
 
-            # NEW: Process only symbols with pending breakout transitions
+            # Process only symbols with pending breakout transitions
             new_signals = []
             symbols_to_process = list(self.pending_breakout_symbols)  # Create a copy to iterate
 
@@ -418,6 +476,13 @@ class ORBStrategy:
                 if symbol in self.positions:
                     self.pending_breakout_symbols.discard(symbol)
                     continue
+
+                # MOMENTUM FILTER: Skip symbols that didn't pass momentum screening
+                if self.strategy_config.enable_momentum_filter and self.momentum_screening_done:
+                    if symbol not in self.momentum_filtered_symbols:
+                        logger.debug(f"Skipping {symbol}: not in momentum-filtered universe")
+                        self.pending_breakout_symbols.discard(symbol)
+                        continue
 
                 # Get current data
                 live_quote = self.live_quotes.get(symbol)
@@ -447,6 +512,17 @@ class ORBStrategy:
                 )
 
                 if signal:
+                    # MOMENTUM BOOST: Increase confidence for high-momentum stocks
+                    if self.strategy_config.enable_momentum_filter:
+                        momentum_data = self.momentum_service.get_symbol_momentum(symbol)
+                        if momentum_data and momentum_data.is_strong_momentum:
+                            boost = self.strategy_config.momentum_confidence_boost
+                            old_conf = signal.confidence
+                            signal.confidence = min(signal.confidence + boost, 1.0)
+                            logger.info(f"Momentum boost for {symbol}: confidence "
+                                        f"{old_conf:.2f} -> {signal.confidence:.2f} "
+                                        f"(momentum={momentum_data.composite_score:.1f})")
+
                     new_signals.append(signal)
                     logger.info(f"Signal generated for {symbol}: {signal_type.value}")
                 else:
@@ -827,6 +903,8 @@ class ORBStrategy:
             logger.info(f"  Portfolio Risk: {risk_metrics['risk_percentage']:.1f}%")
             logger.info(f"  Breakout States: {upside_breakouts} | {downside_breakouts} | {in_range}")
             logger.info(f"  Pending Transitions: {len(self.pending_breakout_symbols)}")
+            if self.strategy_config.enable_momentum_filter:
+                logger.info(f"  Momentum Filter: ENABLED ({len(self.momentum_filtered_symbols)} symbols qualified)")
 
             if category_summary:
                 category_info = ", ".join([f"{cat}: {info['count']}"
@@ -839,7 +917,7 @@ class ORBStrategy:
     def reset_daily_data(self):
         """
         MODIFIED: Reset daily data for new trading day with state tracking
-        NEW: Clears breakout states and pending transitions
+        Clears breakout states, pending transitions, and re-runs momentum screening.
         """
         try:
             logger.info("Resetting daily ORB strategy data...")
@@ -850,15 +928,18 @@ class ORBStrategy:
             self.daily_pnl = 0.0
             self.opening_ranges.clear()
 
-            # NEW: Reset breakout state tracking
+            # Reset breakout state tracking
             for symbol in self.trading_symbols:
                 self.breakout_states[symbol] = BreakoutState.NO_BREAKOUT
 
-            # NEW: Clear pending breakout queue
+            # Clear pending breakout queue
             self.pending_breakout_symbols.clear()
 
             logger.info(f"  Breakout states reset: {len(self.breakout_states)} symbols")
             logger.info(f"  Pending transitions cleared")
+
+            # Re-run momentum screening for the new trading day
+            self._run_momentum_screening()
 
             # Reset data service daily data
             if hasattr(self.data_service, 'reset_daily_data'):
@@ -925,8 +1006,20 @@ class ORBStrategy:
                 'pending_symbols': list(self.pending_breakout_symbols)
             }
 
+            # Momentum screening info
+            momentum_info = {
+                'enabled': self.strategy_config.enable_momentum_filter,
+                'screening_done': self.momentum_screening_done,
+                'qualified_symbols': len(self.momentum_filtered_symbols),
+                'qualified_symbol_list': self.momentum_filtered_symbols,
+                'min_score': self.strategy_config.min_momentum_score,
+                'top_n': self.strategy_config.momentum_top_n,
+            }
+            if self.strategy_config.enable_momentum_filter:
+                momentum_info['screening_summary'] = self.momentum_service.get_screening_summary()
+
             return {
-                'strategy_name': 'Open Range Breakout (ORB) - Event-Based Transition Detection',
+                'strategy_name': 'Open Range Breakout (ORB) - Event-Based + Momentum Filter',
                 'timestamp': datetime.now().isoformat(),
                 'total_pnl': self.metrics.total_pnl,
                 'daily_pnl': self.daily_pnl,
@@ -939,10 +1032,12 @@ class ORBStrategy:
                 'signals_generated_today': len(self.signals_generated_today),
                 'websocket_connected': self.data_service.is_connected,
                 'using_fallback': getattr(self.data_service, 'using_fallback', False),
-                'signal_processing': 'Event-Based (Transition Detection)',
-                'breakout_statistics': breakout_stats,  # NEW
+                'signal_processing': 'Event-Based (Transition Detection) + Momentum Filter',
+                'breakout_statistics': breakout_stats,
+                'momentum_screening': momentum_info,
                 'symbol_management': {
                     'total_universe_size': symbol_manager.get_trading_universe_size(),
+                    'momentum_filtered_size': len(self.momentum_filtered_symbols),
                     'centralized_management': True,
                     'no_category_limits': True
                 },

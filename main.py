@@ -96,7 +96,14 @@ def load_configuration():
             # Position management
             enable_trailing_stops=os.environ.get('ENABLE_TRAILING_STOPS', 'true').lower() == 'true',
             enable_partial_exits=os.environ.get('ENABLE_PARTIAL_EXITS', 'true').lower() == 'true',
-            partial_exit_pct=float(os.environ.get('PARTIAL_EXIT_PCT', 50.0))
+            partial_exit_pct=float(os.environ.get('PARTIAL_EXIT_PCT', 50.0)),
+
+            # Momentum screening
+            enable_momentum_filter=os.environ.get('ENABLE_MOMENTUM_FILTER', 'true').lower() == 'true',
+            min_momentum_score=float(os.environ.get('MIN_MOMENTUM_SCORE', 50.0)),
+            momentum_top_n=int(os.environ.get('MOMENTUM_TOP_N', 15)),
+            momentum_lookback_days=int(os.environ.get('MOMENTUM_LOOKBACK_DAYS', 30)),
+            momentum_confidence_boost=float(os.environ.get('MOMENTUM_CONFIDENCE_BOOST', 0.10))
         )
 
         # Trading configuration
@@ -132,6 +139,7 @@ async def run_orb_strategy():
     try:
         logger.info("=" * 60)
         logger.info("STARTING OPEN RANGE BREAKOUT (ORB) STRATEGY")
+        logger.info("MOMENTUM-FILTERED STOCK SELECTION ENABLED")
         logger.info("SECTOR ALLOCATION LIMITS DISABLED")
         logger.info("=" * 60)
 
@@ -160,7 +168,12 @@ async def run_orb_strategy():
         logger.info(f"ORB Period: {strategy_config.orb_period_minutes} minutes")
         logger.info(f"Stop Loss: {strategy_config.stop_loss_pct}%")
         logger.info(f"Target Multiple: {strategy_config.target_multiplier}x")
-        logger.info("Position allocation based on signal quality only")
+        logger.info(f"Momentum Filter: {'ENABLED' if strategy_config.enable_momentum_filter else 'DISABLED'}")
+        if strategy_config.enable_momentum_filter:
+            logger.info(f"  Min Momentum Score: {strategy_config.min_momentum_score}")
+            logger.info(f"  Top N Stocks: {strategy_config.momentum_top_n}")
+            logger.info(f"  Lookback Days: {strategy_config.momentum_lookback_days}")
+        logger.info("Position allocation based on signal quality + momentum")
 
         # Create and run strategy
         strategy = ORBStrategy(
@@ -317,6 +330,13 @@ def show_strategy_help():
     print("\n Signal Filtering:")
     print("  MIN_CONFIDENCE=0.55            # Minimum signal confidence (60%)")
     print("  MIN_VOLUME_RATIO=1.5          # Volume vs 20-day average ratio")
+
+    print("\n Momentum Screening:")
+    print("  ENABLE_MOMENTUM_FILTER=true   # Enable momentum-based stock filtering")
+    print("  MIN_MOMENTUM_SCORE=50.0       # Minimum momentum score (0-100)")
+    print("  MOMENTUM_TOP_N=15             # Only trade top N momentum stocks")
+    print("  MOMENTUM_LOOKBACK_DAYS=30     # Historical lookback for momentum calc")
+    print("  MOMENTUM_CONFIDENCE_BOOST=0.10 # Extra confidence for strong momentum stocks")
 
     print("\n System Settings:")
     print("  MONITORING_INTERVAL=1        # Strategy monitoring cycle (seconds)")
@@ -861,6 +881,72 @@ def show_performance_dashboard():
     print("\n Future Enhancement: Web-based dashboard planned")
 
 
+def run_momentum_screening():
+    """Run momentum screening on all symbols and display results"""
+    try:
+        print("\n" + "=" * 80)
+        print("MOMENTUM STOCK SCREENING")
+        print("=" * 80)
+
+        fyers_config, strategy_config, _, _ = load_configuration()
+
+        # Validate credentials
+        if not all([fyers_config.client_id, fyers_config.access_token]):
+            print("Missing Fyers credentials. Run 'python main.py auth' first.")
+            return
+
+        # Enhanced authentication
+        config_dict = {'fyers_config': fyers_config}
+        if not authenticate_fyers(config_dict):
+            print("Authentication failed. Run 'python main.py auth' to fix.")
+            return
+
+        print("Authentication successful - running momentum screening...\n")
+
+        from services.momentum_service import MomentumScoringService
+
+        momentum_service = MomentumScoringService(config_dict['fyers_config'])
+
+        # Run screening
+        top_stocks = momentum_service.screen_all_symbols(
+            min_score=strategy_config.min_momentum_score,
+            top_n=strategy_config.momentum_top_n,
+            lookback_days=strategy_config.momentum_lookback_days
+        )
+
+        # Print detailed report
+        momentum_service.print_momentum_report()
+
+        # Show configuration
+        print(f"\nMomentum Filter Configuration:")
+        print(f"  Enabled: {strategy_config.enable_momentum_filter}")
+        print(f"  Min Score: {strategy_config.min_momentum_score}")
+        print(f"  Top N: {strategy_config.momentum_top_n}")
+        print(f"  Lookback Days: {strategy_config.momentum_lookback_days}")
+        print(f"  Confidence Boost: {strategy_config.momentum_confidence_boost}")
+
+        if top_stocks:
+            print(f"\nStocks that will be considered for ORB trading today:")
+            for i, s in enumerate(top_stocks, 1):
+                tag = "STRONG" if s.is_strong_momentum else "BULLISH" if s.is_bullish else "MODERATE"
+                print(f"  {i}. {s.symbol} (Score: {s.composite_score:.1f}, {tag})")
+        else:
+            print("\nNo stocks passed the momentum filter with current settings.")
+            print("Consider lowering MIN_MOMENTUM_SCORE or increasing MOMENTUM_TOP_N.")
+
+        # Show screening summary
+        summary = momentum_service.get_screening_summary()
+        if summary.get('status') == 'completed':
+            print(f"\nScreening Summary:")
+            print(f"  Average Score: {summary['avg_momentum_score']:.1f}")
+            print(f"  Bullish Stocks (>=60): {summary['bullish_count']}")
+            print(f"  Strong Momentum (>=75): {summary['strong_momentum_count']}")
+
+    except Exception as e:
+        print(f"Error running momentum screening: {e}")
+        logger.exception("Momentum screening error")
+
+
 def run_backtest():
     """Placeholder for backtesting functionality"""
     print("\n" + "=" * 70)
@@ -946,6 +1032,10 @@ def main():
         elif command == "dashboard":
             show_performance_dashboard()
 
+        elif command == "momentum":
+            logger.info("Running Momentum Stock Screening")
+            run_momentum_screening()
+
         elif command == "backtest":
             run_backtest()
 
@@ -964,6 +1054,7 @@ def main():
                 ("market", "Show market timing and status"),
                 ("config", "Validate configuration settings"),
                 ("diagnostics", "Run comprehensive system diagnostics"),
+                ("momentum", "Run momentum screening on all stocks"),
                 ("dashboard", "Show performance dashboard"),
                 ("backtest", "Run historical backtesting")
             ]
@@ -988,11 +1079,12 @@ def main():
             ("6", " Show Authentication Status"),
             ("7", " Strategy Configuration Guide"),
             ("8", " Market Status & Timing"),
-            ("9", "️  Validate Configuration"),
+            ("9", "  Validate Configuration"),
             ("10", " Run System Diagnostics"),
-            ("11", " Performance Dashboard"),
-            ("12", " Historical Backtesting"),
-            ("13", " Exit")
+            ("11", " Momentum Stock Screening"),
+            ("12", " Performance Dashboard"),
+            ("13", " Historical Backtesting"),
+            ("14", " Exit")
         ]
 
         for option, description in menu_options:
@@ -1045,19 +1137,23 @@ def main():
                 print("\n️  Please resolve diagnostic issues")
 
         elif choice == "11":
-            show_performance_dashboard()
+            logger.info("Running Momentum Stock Screening")
+            run_momentum_screening()
 
         elif choice == "12":
-            run_backtest()
+            show_performance_dashboard()
 
         elif choice == "13":
+            run_backtest()
+
+        elif choice == "14":
             print("\n Goodbye! Happy Trading! ")
             print(" Remember: Trade responsibly and manage your risk!")
             print(" Monitor position concentration without sector limits!")
 
         else:
             print(f" Invalid choice: {choice}")
-            print("Please select a number between 1 and 13")
+            print("Please select a number between 1 and 14")
 
 
 if __name__ == "__main__":
