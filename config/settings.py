@@ -72,6 +72,13 @@ class ORBStrategyConfig:
     fvg_min_gap_size_pct: float = 0.3  # Minimum gap size as % of price
     fvg_filter_mode: str = "STRICT"  # STRICT: block trades in FVG, LENIENT: reduce confidence, ALIGNED: only allow FVG-aligned trades
 
+    # Momentum screening settings
+    enable_momentum_filter: bool = True  # Enable/disable momentum-based stock filtering
+    min_momentum_score: float = 50.0  # Minimum composite momentum score (0-100) to qualify
+    momentum_top_n: int = 15  # Only consider top N momentum stocks for ORB trading
+    momentum_lookback_days: int = 30  # Days of history for momentum calculation
+    momentum_confidence_boost: float = 0.10  # Extra confidence added for high-momentum stocks (>75 score)
+
 
 @dataclass
 class TradingConfig:
