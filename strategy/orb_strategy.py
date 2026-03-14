@@ -29,6 +29,7 @@ from services.analysis_service import ORBTechnicalAnalysisService
 from services.market_timing_service import MarketTimingService
 from services.momentum_service import MomentumScoringService
 from services.leverage_filter_service import LeverageFilterService
+from services.moneycontrol_service import MoneycontrolWatchlistService
 from strategy.order_manager import OrderManager
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ class ORBStrategy:
             fyers_config,
             min_leverage=self.strategy_config.min_intraday_leverage
         )
+        self.moneycontrol_service = MoneycontrolWatchlistService()
 
         # ADD THIS LINE:
         self.order_manager = OrderManager(fyers_config)
@@ -178,6 +180,28 @@ class ORBStrategy:
             logger.info("=" * 60)
             logger.info("RUNNING PRE-MARKET MOMENTUM SCREENING")
             logger.info("=" * 60)
+
+            # Step 0: Fetch additional stocks from Moneycontrol "Stocks to watch today"
+            logger.info("Fetching stocks from Moneycontrol 'Stocks to watch today'...")
+            mc_stocks = self.moneycontrol_service.fetch_stocks_to_watch()
+            if mc_stocks:
+                newly_added = [
+                    sym for sym, fyers_sym in mc_stocks
+                    if symbol_manager.add_symbol(sym, fyers_sym)
+                ]
+                if newly_added:
+                    logger.info(
+                        f"MoneyControl: Added {len(newly_added)} new symbol(s) to universe: "
+                        f"{newly_added}"
+                    )
+                already_present = [s for s, _ in mc_stocks if s not in newly_added]
+                if already_present:
+                    logger.info(
+                        f"MoneyControl: {len(already_present)} symbol(s) already in universe: "
+                        f"{already_present}"
+                    )
+            else:
+                logger.info("MoneyControl: No additional stocks fetched (article unavailable or no symbols found)")
 
             top_stocks = self.momentum_service.screen_all_symbols(
                 min_score=self.strategy_config.min_momentum_score,
