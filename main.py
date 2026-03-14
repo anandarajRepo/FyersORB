@@ -103,7 +103,11 @@ def load_configuration():
             min_momentum_score=float(os.environ.get('MIN_MOMENTUM_SCORE', 50.0)),
             momentum_top_n=int(os.environ.get('MOMENTUM_TOP_N', 15)),
             momentum_lookback_days=int(os.environ.get('MOMENTUM_LOOKBACK_DAYS', 30)),
-            momentum_confidence_boost=float(os.environ.get('MOMENTUM_CONFIDENCE_BOOST', 0.10))
+            momentum_confidence_boost=float(os.environ.get('MOMENTUM_CONFIDENCE_BOOST', 0.10)),
+
+            # Leverage filter (applied after momentum screening)
+            enable_leverage_filter=os.environ.get('ENABLE_LEVERAGE_FILTER', 'true').lower() == 'true',
+            min_intraday_leverage=float(os.environ.get('MIN_INTRADAY_LEVERAGE', 5.0))
         )
 
         # Trading configuration
@@ -173,6 +177,11 @@ async def run_orb_strategy():
             logger.info(f"  Min Momentum Score: {strategy_config.min_momentum_score}")
             logger.info(f"  Top N Stocks: {strategy_config.momentum_top_n}")
             logger.info(f"  Lookback Days: {strategy_config.momentum_lookback_days}")
+        logger.info(
+            f"Leverage Filter: {'ENABLED' if strategy_config.enable_leverage_filter else 'DISABLED'}"
+            + (f" (min {strategy_config.min_intraday_leverage:.0f}x intraday margin)"
+               if strategy_config.enable_leverage_filter else "")
+        )
         logger.info("Position allocation based on signal quality + momentum")
 
         # Create and run strategy

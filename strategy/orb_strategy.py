@@ -28,6 +28,7 @@ from services.fyers_websocket_service import HybridORBDataService
 from services.analysis_service import ORBTechnicalAnalysisService
 from services.market_timing_service import MarketTimingService
 from services.momentum_service import MomentumScoringService
+from services.leverage_filter_service import LeverageFilterService
 from strategy.order_manager import OrderManager
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,10 @@ class ORBStrategy:
         self.analysis_service = ORBTechnicalAnalysisService(self.data_service)
         self.timing_service = MarketTimingService(trading_config)
         self.momentum_service = MomentumScoringService(fyers_config)
+        self.leverage_filter_service = LeverageFilterService(
+            fyers_config,
+            min_leverage=self.strategy_config.min_intraday_leverage
+        )
 
         # ADD THIS LINE:
         self.order_manager = OrderManager(fyers_config)
@@ -140,6 +145,12 @@ class ORBStrategy:
                 logger.info(f"  Momentum-qualified symbols: {len(self.momentum_filtered_symbols)}")
                 logger.info(f"  Momentum min score: {self.strategy_config.min_momentum_score}")
                 logger.info(f"  Momentum top N: {self.strategy_config.momentum_top_n}")
+            logger.info(
+                f"  Leverage filter: "
+                f"{'ENABLED' if self.strategy_config.enable_leverage_filter else 'DISABLED'}"
+                + (f" (min {self.strategy_config.min_intraday_leverage:.0f}x)"
+                   if self.strategy_config.enable_leverage_filter else "")
+            )
             logger.info(f"  Max positions: {self.strategy_config.max_positions}")
             logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
             logger.info(f"  Signal processing: Event-based (transition detection)")
@@ -174,11 +185,10 @@ class ORBStrategy:
                 lookback_days=self.strategy_config.momentum_lookback_days
             )
 
-            self.momentum_filtered_symbols = [s.symbol for s in top_stocks]
-            self.momentum_screening_done = True
+            momentum_symbols = [s.symbol for s in top_stocks]
 
-            if self.momentum_filtered_symbols:
-                logger.info(f"Momentum screening selected {len(self.momentum_filtered_symbols)} stocks:")
+            if momentum_symbols:
+                logger.info(f"Momentum screening selected {len(momentum_symbols)} stocks:")
                 for i, s in enumerate(top_stocks, 1):
                     logger.info(f"  #{i} {s.symbol}: Score={s.composite_score:.1f}/100 "
                                 f"ROC5d={s.roc_5d:+.1f}% RSI={s.rsi_14:.0f} "
@@ -186,7 +196,31 @@ class ORBStrategy:
             else:
                 logger.warning("No stocks passed momentum filter - falling back to full universe")
                 self.momentum_filtered_symbols = list(self.trading_symbols)
+                self.momentum_screening_done = True
+                logger.info("=" * 60)
+                return
 
+            # --- Leverage filter (applied after momentum screening) ---
+            if self.strategy_config.enable_leverage_filter:
+                leverage_qualified = self.leverage_filter_service.filter_by_leverage(top_stocks)
+
+                if leverage_qualified:
+                    self.momentum_filtered_symbols = leverage_qualified
+                    logger.info(
+                        f"After leverage filter ({self.strategy_config.min_intraday_leverage:.0f}x): "
+                        f"{len(leverage_qualified)} stock(s) qualify: "
+                        f"{', '.join(leverage_qualified)}"
+                    )
+                else:
+                    logger.warning(
+                        "No stocks passed leverage filter - falling back to momentum-only list"
+                    )
+                    self.momentum_filtered_symbols = momentum_symbols
+            else:
+                logger.info("Leverage filter disabled - using momentum-screened stocks as-is")
+                self.momentum_filtered_symbols = momentum_symbols
+
+            self.momentum_screening_done = True
             logger.info("=" * 60)
 
         except Exception as e:

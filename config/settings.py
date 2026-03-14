@@ -79,6 +79,10 @@ class ORBStrategyConfig:
     momentum_lookback_days: int = 30  # Days of history for momentum calculation
     momentum_confidence_boost: float = 0.10  # Extra confidence added for high-momentum stocks (>75 score)
 
+    # Leverage filter settings (applied after momentum screening)
+    enable_leverage_filter: bool = True   # Filter stocks by available intraday leverage
+    min_intraday_leverage: float = 5.0   # Minimum leverage multiplier required (5x = 20% margin)
+
 
 @dataclass
 class TradingConfig:
