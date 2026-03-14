@@ -11,6 +11,9 @@ numpy>=1.24.0
 requests>=2.31.0
 python-dotenv==1.0.0
 
+# HTML parsing for Moneycontrol article scraping
+beautifulsoup4>=4.12.0
+
 # Timezone handling
 pytz>=2023.3
 

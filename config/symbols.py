@@ -75,6 +75,18 @@ class ORBSymbolManager:
         """Check if symbol is supported"""
         return symbol.upper() in self._symbol_mappings
 
+    def add_symbol(self, symbol: str, fyers_symbol: str) -> bool:
+        """
+        Dynamically add a symbol to the trading universe (e.g. from Moneycontrol).
+        Returns True if the symbol was newly added, False if it already existed.
+        """
+        symbol = symbol.upper()
+        if symbol in self._symbol_mappings:
+            return False
+        self._symbol_mappings[symbol] = fyers_symbol
+        self._reverse_mappings[fyers_symbol] = symbol
+        return True
+
     def get_trading_universe_size(self) -> int:
         """Get total number of tradable symbols"""
         return len(self._symbol_mappings)
