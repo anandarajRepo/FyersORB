@@ -123,14 +123,20 @@ class MoneycontrolWatchlistService:
         # First pass: prefer a link from this month containing keywords
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if "stocks-to-watch" in href.lower() and today_month in href:
-                return self._absolute_url(href)
+            path = href.split("?")[0]  # ignore query-string when matching
+            if "stocks-to-watch" in path.lower() and today_month in path:
+                url = self._absolute_url(href)
+                if url:
+                    return url
 
         # Second pass: any link with the keyword in the listing
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if "stocks-to-watch" in href.lower() and "/news/" in href:
-                return self._absolute_url(href)
+            path = href.split("?")[0]
+            if "stocks-to-watch" in path.lower() and "/news/" in path:
+                url = self._absolute_url(href)
+                if url:
+                    return url
 
         return None
 
@@ -177,6 +183,9 @@ class MoneycontrolWatchlistService:
 
     @staticmethod
     def _absolute_url(href: str) -> str:
-        if href.startswith("http"):
+        if href.startswith("https://") or href.startswith("http://"):
             return href
+        # Reject non-HTTP scheme URIs (whatsapp://, mailto:, tel:, etc.)
+        if "://" in href:
+            return ""
         return "https://www.moneycontrol.com" + href
