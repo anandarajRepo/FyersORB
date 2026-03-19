@@ -30,6 +30,7 @@ from services.market_timing_service import MarketTimingService
 from services.momentum_service import MomentumScoringService
 from services.leverage_filter_service import LeverageFilterService
 from services.moneycontrol_service import MoneycontrolWatchlistService
+from services.trend_direction_service import TrendDirectionService, TrendAnalysis, TrendDirection
 from strategy.order_manager import OrderManager
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class ORBStrategy:
             min_leverage=self.strategy_config.min_intraday_leverage
         )
         self.moneycontrol_service = MoneycontrolWatchlistService()
+        self.trend_service = TrendDirectionService(fyers_config)
 
         # ADD THIS LINE:
         self.order_manager = OrderManager(fyers_config)
@@ -92,6 +94,11 @@ class ORBStrategy:
         # Momentum-filtered trading universe
         self.momentum_filtered_symbols: List[str] = []
         self.momentum_screening_done: bool = False
+
+        # Trend direction analysis (pre-market, cached per day)
+        self.trend_analyses: Dict[str, TrendAnalysis] = {}   # symbol -> TrendAnalysis
+        self.nifty_trend: Optional[TrendAnalysis] = None
+        self.trend_analysis_done: bool = False
 
         # ===== NEW: State tracking for breakout transitions =====
         # Track breakout state for each symbol
@@ -122,8 +129,9 @@ class ORBStrategy:
 
             logger.info("Broker connection verified")
 
-            # Run momentum screening before market data connection
+            # Run momentum screening and trend analysis before market data connection
             self._run_momentum_screening()
+            self._run_trend_analysis()
 
             # Connect to data service
             if not self.data_service.connect():
@@ -153,6 +161,14 @@ class ORBStrategy:
                 + (f" (min {self.strategy_config.min_intraday_leverage:.0f}x)"
                    if self.strategy_config.enable_leverage_filter else "")
             )
+            logger.info(f"  Trend filter: {'ENABLED' if self.strategy_config.enable_trend_filter else 'DISABLED'}"
+                        + (f" (lookback={self.strategy_config.trend_lookback_days}d, "
+                           f"mode={self.strategy_config.trend_filter_mode})"
+                           if self.strategy_config.enable_trend_filter else ""))
+            if self.strategy_config.enable_trend_filter and self.nifty_trend:
+                logger.info(f"  Nifty 50 Trend: {self.nifty_trend.trend.value} "
+                            f"(strength={self.nifty_trend.strength:.1f}, "
+                            f"slope={self.nifty_trend.price_slope:+.2f}%)")
             logger.info(f"  Max positions: {self.strategy_config.max_positions}")
             logger.info(f"  Risk per trade: {self.strategy_config.risk_per_trade_pct}%")
             logger.info(f"  Signal processing: Event-based (transition detection)")
@@ -251,6 +267,62 @@ class ORBStrategy:
             logger.error(f"Momentum screening failed: {e} - falling back to full universe")
             self.momentum_filtered_symbols = list(self.trading_symbols)
             self.momentum_screening_done = True
+
+    def _run_trend_analysis(self):
+        """
+        Analyse multi-day trend direction for all momentum-filtered symbols
+        plus the Nifty 50 index.  Results are cached for the day.
+        Called during initialisation (pre-market), and again on daily reset.
+        """
+        try:
+            if not self.strategy_config.enable_trend_filter:
+                logger.info("Trend filter disabled - skipping trend analysis")
+                self.trend_analysis_done = True
+                return
+
+            logger.info("=" * 60)
+            logger.info("RUNNING PRE-MARKET TREND DIRECTION ANALYSIS")
+            logger.info("=" * 60)
+
+            # Analyse symbols that passed momentum screening (or full universe)
+            symbols_to_analyse = (
+                self.momentum_filtered_symbols
+                if self.momentum_screening_done and self.momentum_filtered_symbols
+                else list(self.trading_symbols)
+            )
+
+            lookback = self.strategy_config.trend_lookback_days
+            self.trend_analyses = self.trend_service.analyze_all_symbols(
+                symbols_to_analyse, lookback_days=lookback
+            )
+
+            self.nifty_trend = self.trend_analyses.get("NIFTY50")
+
+            # Log summary
+            stock_trends = {k: v for k, v in self.trend_analyses.items() if k != "NIFTY50"}
+            up_count   = sum(1 for v in stock_trends.values() if v.trend == TrendDirection.UPTREND)
+            down_count = sum(1 for v in stock_trends.values() if v.trend == TrendDirection.DOWNTREND)
+            side_count = sum(1 for v in stock_trends.values() if v.trend == TrendDirection.SIDEWAYS)
+
+            logger.info(f"Trend analysis complete: "
+                        f"{up_count} UPTREND | {down_count} DOWNTREND | {side_count} SIDEWAYS")
+            if self.nifty_trend:
+                logger.info(f"Nifty 50: {self.nifty_trend.trend.value} "
+                            f"(strength={self.nifty_trend.strength:.1f}, "
+                            f"slope={self.nifty_trend.price_slope:+.2f}%, "
+                            f"EMA={self.nifty_trend.ema_signal.value})")
+
+            for symbol, analysis in stock_trends.items():
+                logger.info(f"  {symbol}: {analysis.trend.value}  "
+                            f"strength={analysis.strength:.1f}  "
+                            f"slope={analysis.price_slope:+.2f}%")
+
+            self.trend_analysis_done = True
+            logger.info("=" * 60)
+
+        except Exception as e:
+            logger.error(f"Trend analysis failed: {e} - trend filter will be skipped")
+            self.trend_analysis_done = True   # Don't block trading on analysis failure
 
     def _on_live_data_update(self, symbol: str, live_quote: LiveQuote):
         """
@@ -563,6 +635,27 @@ class ORBStrategy:
                     # Should not happen, but handle it
                     self.pending_breakout_symbols.discard(symbol)
                     continue
+
+                # TREND FILTER: Only trade in the direction of the prevailing trend
+                if self.strategy_config.enable_trend_filter and self.trend_analysis_done:
+                    stock_trend = self.trend_service.get_symbol_trend(
+                        symbol, self.strategy_config.trend_lookback_days
+                    )
+                    nifty_trend = self.nifty_trend
+
+                    if stock_trend and nifty_trend:
+                        aligned, reason = self.trend_service.is_signal_aligned_with_trend(
+                            signal_type, stock_trend, nifty_trend,
+                            filter_mode=self.strategy_config.trend_filter_mode
+                        )
+                        if not aligned:
+                            logger.info(f"TREND FILTER blocked {symbol} ({signal_type.value}): {reason}")
+                            self.pending_breakout_symbols.discard(symbol)
+                            continue
+                        else:
+                            logger.info(f"TREND FILTER passed {symbol} ({signal_type.value}): {reason}")
+                    else:
+                        logger.debug(f"Trend data unavailable for {symbol} - skipping trend filter")
 
                 # Evaluate the breakout signal
                 signal = await self._evaluate_breakout_signal(
@@ -903,8 +996,11 @@ class ORBStrategy:
             self.market_state.max_positions_reached = len(self.positions) >= self.strategy_config.max_positions
             self.market_state.daily_loss_limit_hit = self.daily_pnl < -abs(self.max_daily_loss)
 
-            # Update market trend (placeholder - could be enhanced with index analysis)
-            self.market_state.market_trend = "NEUTRAL"
+            # Update market trend from Nifty 50 trend analysis
+            if self.nifty_trend is not None:
+                self.market_state.market_trend = self.nifty_trend.trend.value
+            else:
+                self.market_state.market_trend = "NEUTRAL"
             self.market_state.volatility_regime = "NORMAL"
 
         except Exception as e:
@@ -963,6 +1059,10 @@ class ORBStrategy:
             logger.info(f"  Pending Transitions: {len(self.pending_breakout_symbols)}")
             if self.strategy_config.enable_momentum_filter:
                 logger.info(f"  Momentum Filter: ENABLED ({len(self.momentum_filtered_symbols)} symbols qualified)")
+            if self.strategy_config.enable_trend_filter and self.nifty_trend:
+                logger.info(f"  Nifty Trend: {self.nifty_trend.trend.value} "
+                            f"(strength={self.nifty_trend.strength:.1f}, "
+                            f"slope={self.nifty_trend.price_slope:+.2f}%)")
 
             if category_summary:
                 category_info = ", ".join([f"{cat}: {info['count']}"
@@ -996,8 +1096,9 @@ class ORBStrategy:
             logger.info(f"  Breakout states reset: {len(self.breakout_states)} symbols")
             logger.info(f"  Pending transitions cleared")
 
-            # Re-run momentum screening for the new trading day
+            # Re-run momentum screening and trend analysis for the new trading day
             self._run_momentum_screening()
+            self._run_trend_analysis()
 
             # Reset data service daily data
             if hasattr(self.data_service, 'reset_daily_data'):
@@ -1064,6 +1165,19 @@ class ORBStrategy:
                 'pending_symbols': list(self.pending_breakout_symbols)
             }
 
+            # Trend direction analysis info
+            trend_info = {
+                'enabled': self.strategy_config.enable_trend_filter,
+                'analysis_done': self.trend_analysis_done,
+                'lookback_days': self.strategy_config.trend_lookback_days,
+                'filter_mode': self.strategy_config.trend_filter_mode,
+                'nifty_trend': self.nifty_trend.trend.value if self.nifty_trend else 'N/A',
+                'nifty_strength': self.nifty_trend.strength if self.nifty_trend else 0.0,
+                'nifty_slope_pct': self.nifty_trend.price_slope if self.nifty_trend else 0.0,
+            }
+            if self.strategy_config.enable_trend_filter:
+                trend_info['summary'] = self.trend_service.get_trend_summary()
+
             # Momentum screening info
             momentum_info = {
                 'enabled': self.strategy_config.enable_momentum_filter,
@@ -1090,8 +1204,9 @@ class ORBStrategy:
                 'signals_generated_today': len(self.signals_generated_today),
                 'websocket_connected': self.data_service.is_connected,
                 'using_fallback': getattr(self.data_service, 'using_fallback', False),
-                'signal_processing': 'Event-Based (Transition Detection) + Momentum Filter',
+                'signal_processing': 'Event-Based (Transition Detection) + Momentum Filter + Trend Filter',
                 'breakout_statistics': breakout_stats,
+                'trend_analysis': trend_info,
                 'momentum_screening': momentum_info,
                 'symbol_management': {
                     'total_universe_size': symbol_manager.get_trading_universe_size(),

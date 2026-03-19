@@ -83,6 +83,14 @@ class ORBStrategyConfig:
     enable_leverage_filter: bool = True   # Filter stocks by available intraday leverage
     min_intraday_leverage: float = 5.0   # Minimum leverage multiplier required (5x = 20% margin)
 
+    # Trend direction filter settings
+    # Analyzes the past N trading days of stock + Nifty 50 price action and only
+    # allows orders whose signal direction is aligned with the prevailing trend.
+    enable_trend_filter: bool = True       # Enable/disable trend-direction filtering
+    trend_lookback_days: int = 10          # Trading days to analyse for trend (5-20 recommended)
+    trend_filter_mode: str = "STRICT"      # STRICT: reject if stock OR Nifty opposes signal
+                                           # LENIENT: reject only when BOTH oppose signal
+
 
 @dataclass
 class TradingConfig:
