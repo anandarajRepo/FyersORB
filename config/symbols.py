@@ -14,38 +14,82 @@ class ORBSymbolManager:
     def __init__(self):
         # Simple mapping: symbol -> Fyers WebSocket format
         self._symbol_mappings: Dict[str, str] = {
+            # Upstream Energy — Clear Winners
+            "ONGC": "NSE:ONGC-EQ",
+            "OIL": "NSE:OIL-EQ",
+            "GAIL": "NSE:GAIL-EQ",
+
+            # Renewables — Structural Beneficiaries
+            "ADANIGREEN": "NSE:ADANIGREEN-EQ",
+            "TATAPOWER": "NSE:TATAPOWER-EQ",
+            "NTPCGREEN": "NSE:NTPCGREEN-EQ",
+            "SJVN": "NSE:SJVN-EQ",
+            "CESC": "NSE:CESC-EQ",
+
+            # City Gas / LNG Distribution
+            "Indraprastha Gas": "NSE:IGL-EQ",
+            "Mahanagar Gas": "NSE:MGL-EQ",
+            "GUJGASLTD": "NSE:GUJGASLTD-EQ",
+            "PETRONET": "NSE:PETRONET-EQ",
+
+            # Defence
+            "Hindustan Aeronautics": "NSE:HAL-EQ",
+            "Bharat Electronics": "NSE:BEL-EQ",
+            "Mazagon Dock Shipbuilders": "NSE:MAZDOCK-EQ",
+            "Data Patterns (India)": "NSE:DATAPATTNS-EQ",
+
+            # Sugar - Ethanol
+            "EID Parry (India)": "NSE:EIDPARRY-EQ",
+            "Balrampur Chini Mills": "NSE:BALRAMCHIN-EQ",
+            "Shree Renuka Sugars": "NSE:RENUKA-EQ",
+            "Triveni Engineering & Industries": "NSE:TRIVENIT-EQ",
+            "Bajaj Hindusthan Sugar": "NSE:BAJAJHIND-EQ",
+
+            # Pharmaceuticals
+            "Sun Pharmaceutical Industries": "NSE:SUNPHARMA-EQ",
+            "Divis Laboratories": "NSE:DIVISLAB-EQ",
+            "Cipla": "NSE:CIPLA-EQ",
+
+            # Petroluem (Oil Marketing Companies)
+            "Indian Oil Corporation": "NSE:IOC-EQ",
+            "Bharat Petroleum Corporation": "NSE:BPCL-EQ",
+            "Hindustan Petroleum Corporation": "NSE:HPCL-EQ",
+
+            # Airlines
+            "InterGlobe Aviation": "NSE:INDIGO-EQ",
+
+            # Paints
+            "Asian Paints": "NSE:ASIANPAINT-EQ",
+            "Berger Paints India": "NSE:BERGEPAINT-EQ",
+            "Kansai Nerolac Paints": "NSE:KANSAINER-EQ",
+            "Indigo Paints": "NSE:INDIGOPNT-EQ",
+            "JSW Paints": "NSE:JSWPAINT-EQ",
+
+            # Tyres
+            "CEAT": "NSE:CEATLTD-EQ",
+            "MRF": "NSE:MRF-EQ",
+            "Apollo Tyres": "NSE:APOLLOTYRE-EQ",
+            "JK Tyre & Industries": "NSE:JKTYRE-EQ",
+            "Balkrishna Industries": "NSE:BALKRISIND-EQ",
+
+            # Autos(Nifty Auto)
+            "Maruti Suzuki India": "NSE:MARUTI-EQ",
+            "Mahindra & Mahindra": "NSE:M&M-EQ",
+            "Bajaj Auto": "NSE:BAJAJ-AUTO-EQ",
+            "Eicher Motors": "NSE:EICHERMOT-EQ",
+            "TVS Motor Company": "NSE:TVSMOTOR-EQ",
+
             # IPO Stocks
-            "URBANCO": "NSE:URBANCO-EQ",
-            "AMANTA": "NSE:AMANTA-EQ",
             "VIKRAMSOLR": "NSE:VIKRAMSOLR-EQ",
-            "SHREEJISPG": "NSE:SHREEJISPG-EQ",
-            "PATELRMART": "NSE:PATELRMART-EQ",
-            "REGAAL": "NSE:REGAAL-EQ",
-            "HILINFRA": "NSE:HILINFRA-EQ",
-            "SAATVIKGL": "NSE:SAATVIKGL-EQ",
             "ATLANTAELE": "NSE:ATLANTAELE-EQ",
-            "STYL": "NSE:STYL-EQ",
             "SOLARWORLD": "NSE:SOLARWORLD-EQ",
-            "TRUALT": "NSE:TRUALT-EQ",
-            "ADVANCE": "NSE:ADVANCE-EQ",
-            "LGEINDIA": "NSE:LGEINDIA-EQ",
             "RUBICON": "NSE:RUBICON-EQ",
             "MIDWESTLTD": "NSE:MIDWESTLTD-EQ",
-            "ORKLAINDIA": "NSE:ORKLAINDIA-EQ",
-            "LENSKART": "NSE:LENSKART-EQ",
-            "GROWW": "NSE:GROWW-EQ",
-            "SUDEEPPHRM": "NSE:SUDEEPPHRM-EQ",
-            "EXCELSOFT": "NSE:EXCELSOFT-EQ",
-            "TENNIND": "NSE:TENNIND-EQ",
-            "MEESHO": "NSE:MEESHO-EQ",
-            "AEQUS": "NSE:AEQUS-EQ",
-            "CORONA": "NSE:CORONA-EQ",
 
             # Favourite Stocks
             "STLTECH": "NSE:STLTECH-EQ",
             "SKYGOLD": "NSE:SKYGOLD-EQ",
             "AXISCADES": "NSE:AXISCADES-EQ",
-            "SATTRIX": "BSE:SATTRIX-M",
         }
 
         # Create reverse mapping for quick lookups
