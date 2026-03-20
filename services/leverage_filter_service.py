@@ -17,7 +17,9 @@ This filter runs once per day after momentum screening and caches
 results to avoid repeated API calls.
 """
 
+import json
 import logging
+import requests
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -99,20 +101,31 @@ class LeverageFilterService:
                 logger.warning(f"Invalid price for leverage check: {symbol} price={current_price}")
                 return None
 
-            # Request margin for 1 share (MIS = intraday product type)
-            data = {
-                "basket": [{
-                    "symbol": fyers_symbol,
-                    "qty": 1,
-                    "side": 1,              # Buy side
-                    "type": 2,              # Market order
-                    "productType": "INTRADAY",
-                    "limitPrice": 0,
-                    "stopPrice": 0
-                }]
+            # Request margin for 1 share (INTRADAY product type)
+            # The fyers_apiv3 SDK does not expose a generate_margin / span_margin
+            # method, so we call the REST endpoint directly.
+            auth_header = "{}:{}".format(
+                self.fyers_config.client_id, self.fyers_config.access_token
+            )
+            payload = {
+                "symbol": fyers_symbol,
+                "qty": 1,
+                "side": 1,          # Buy side
+                "type": 2,          # Market order
+                "productType": "INTRADAY",
+                "limitPrice": 0,
+                "stopPrice": 0,
             }
-
-            response = self.fyers_client.generate_margin(data=data)
+            raw = requests.post(
+                "https://api.fyers.in/api/v3/span_margin",
+                data=json.dumps(payload),
+                headers={
+                    "Authorization": auth_header,
+                    "Content-Type": "application/json",
+                },
+                timeout=10,
+            )
+            response = raw.json() if raw.content else {}
 
             if not response or response.get('s') != 'ok':
                 error_msg = response.get('message', 'Unknown error') if response else 'No response'
