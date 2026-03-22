@@ -100,8 +100,9 @@ class MoneycontrolWatchlistService:
 
     def _find_todays_article_url(self) -> Optional[str]:
         """
-        Scrape the tag listing page and return the URL of the most recent
-        'stocks-to-watch-today' article, preferring today's date in the URL.
+        Scrape the tag listing page and return the URL of the first article
+        that matches today's date. Falls back to the most recent article if
+        no exact date match is found.
         """
         try:
             resp = self._session.get(MONEYCONTROL_TAG_URL, timeout=REQUEST_TIMEOUT)
@@ -118,25 +119,73 @@ class MoneycontrolWatchlistService:
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        today_month = datetime.now().strftime("%Y/%m")  # e.g. "2026/03"
+        today = datetime.now()
 
-        # First pass: prefer a link from this month containing keywords
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            path = href.split("?")[0]  # ignore query-string when matching
-            if "stocks-to-watch" in path.lower() and today_month in path:
-                url = self._absolute_url(href)
-                if url:
-                    return url
+        # Today's date in several formats that may appear in article URLs or listing text
+        today_path = today.strftime("%Y/%m/%d")               # 2026/03/20
+        today_month = today.strftime("%Y/%m")                  # 2026/03
+        today_url_text = today.strftime("%B-%d-%Y").lower()    # march-20-2026
+        today_date_formats = [
+            today.strftime("%B %d, %Y"),    # March 20, 2026
+            today.strftime("%B %-d, %Y"),   # March 20, 2026 (no zero-pad)
+            today.strftime("%d %B %Y"),     # 20 March 2026
+            today.strftime("%b %d, %Y"),    # Mar 20, 2026
+            today.strftime("%d %b %Y"),     # 20 Mar 2026
+            today.strftime("%Y-%m-%d"),     # 2026-03-20
+        ]
 
-        # Second pass: any link with the keyword in the listing
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
+        def _is_article_link(href: str) -> bool:
+            """True for stocks-to-watch article links (not the tag page itself)."""
             path = href.split("?")[0]
-            if "stocks-to-watch" in path.lower() and "/news/" in path:
-                url = self._absolute_url(href)
-                if url:
-                    return url
+            if "tags/stocks-to-watch" in path.lower():
+                return False
+            return "stocks-to-watch" in path.lower() and "/news/" in path.lower()
+
+        # Build ordered list of candidate (anchor, absolute_url) pairs as they
+        # appear in the listing (top = most recent).
+        candidates = []
+        seen_urls = set()
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if not _is_article_link(href):
+                continue
+            url = self._absolute_url(href)
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                candidates.append((a, url))
+
+        logger.debug(f"MoneyControl: Found {len(candidates)} candidate article link(s) on listing page")
+
+        # Pass 1: URL contains today's full date path (e.g. 2026/03/20)
+        for a, url in candidates:
+            if today_path in url or today_url_text in url.lower():
+                logger.debug(f"MoneyControl: Matched today's article via URL date: {url}")
+                return url
+
+        # Pass 2: look for today's date text in the nearest enclosing container
+        for a, url in candidates:
+            parent = a.parent
+            for _ in range(5):
+                if parent is None:
+                    break
+                parent_text = parent.get_text(" ", strip=True)
+                for fmt in today_date_formats:
+                    if fmt.lower() in parent_text.lower():
+                        logger.debug(f"MoneyControl: Matched today's article via listing date text: {url}")
+                        return url
+                parent = parent.parent
+
+        # Pass 3: first candidate whose URL contains the current month path
+        for a, url in candidates:
+            if today_month in url:
+                logger.debug(f"MoneyControl: Falling back to first article from this month: {url}")
+                return url
+
+        # Pass 4: just take the first (most recent) candidate
+        if candidates:
+            _, url = candidates[0]
+            logger.debug(f"MoneyControl: Falling back to most recent article: {url}")
+            return url
 
         return None
 
@@ -156,20 +205,44 @@ class MoneycontrolWatchlistService:
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Try to narrow down to the article body to reduce noise
+        # Try to narrow down to the article body to reduce noise.
+        # Moneycontrol uses several class names across layouts.
         article_div = (
             soup.find("div", class_=re.compile(r"article[-_]?(body|content|text|detail)", re.I))
+            or soup.find("div", class_=re.compile(r"(content_wrapper|arti[-_]?content|story[-_]?content|article-page)", re.I))
             or soup.find("article")
-            or soup.find("div", id=re.compile(r"article|content|story", re.I))
+            or soup.find("div", id=re.compile(r"article|content|story|main[-_]?content", re.I))
         )
         text = article_div.get_text(" ", strip=True) if article_div else soup.get_text(" ", strip=True)
 
         symbols_found: set = set()
+
+        # Pattern-based extraction from article text
         for pattern in _NSE_PATTERNS:
             for match in re.finditer(pattern, text):
                 symbol = match.group(1).strip().upper()
                 if self._is_valid_nse_symbol(symbol):
                     symbols_found.add(symbol)
+
+        # Also extract symbols from embedded Moneycontrol stock-quote links, e.g.
+        # href="/india/stockpricequote/.../SYMBOL" or stockPageName=SYMBOL in href
+        search_scope = article_div if article_div else soup
+        for a in search_scope.find_all("a", href=True):
+            href = a["href"]
+            # /india/stockpricequote/<sector>/<name>/<SYMBOL>
+            m = re.search(r'/stockpricequote/[^/]+/[^/]+/([A-Z][A-Z0-9&]{1,14})(?:\b|$)', href)
+            if m:
+                symbol = m.group(1).upper()
+                if self._is_valid_nse_symbol(symbol):
+                    symbols_found.add(symbol)
+            # data-* attributes sometimes carry the NSE code
+            for attr_val in a.attrs.values():
+                if isinstance(attr_val, str):
+                    m2 = re.search(r'\bNSE[:/]([A-Z][A-Z0-9&]{1,14})\b', attr_val)
+                    if m2:
+                        symbol = m2.group(1).upper()
+                        if self._is_valid_nse_symbol(symbol):
+                            symbols_found.add(symbol)
 
         return [(sym, f"NSE:{sym}-EQ") for sym in sorted(symbols_found)]
 
