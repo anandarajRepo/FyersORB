@@ -107,9 +107,13 @@ class ORBStrategy:
         # Track symbols that have new breakout transitions (event queue)
         self.pending_breakout_symbols: Set[str] = set()
 
+        # Track number of crossovers per symbol (skip trade on first crossover)
+        self.crossover_counts: Dict[str, int] = {}
+
         # Initialize all symbols to NO_BREAKOUT state
         for symbol in self.trading_symbols:
             self.breakout_states[symbol] = BreakoutState.NO_BREAKOUT
+            self.crossover_counts[symbol] = 0
 
         logger.info(f"Initialized breakout state tracking for {len(self.trading_symbols)} symbols")
         # ========================================================
@@ -396,8 +400,13 @@ class ORBStrategy:
 
                 # Queue symbol for signal generation if it's a breakout transition
                 if new_state in [BreakoutState.UPSIDE_BREAKOUT, BreakoutState.DOWNSIDE_BREAKOUT]:
-                    self.pending_breakout_symbols.add(symbol)
-                    logger.info(f"Queued {symbol} for signal evaluation (new {new_state.value})")
+                    self.crossover_counts[symbol] = self.crossover_counts.get(symbol, 0) + 1
+                    crossover_num = self.crossover_counts[symbol]
+                    if crossover_num >= 2:
+                        self.pending_breakout_symbols.add(symbol)
+                        logger.info(f"Queued {symbol} for signal evaluation (crossover #{crossover_num}, {new_state.value})")
+                    else:
+                        logger.info(f"Skipping first crossover for {symbol} (crossover #{crossover_num}, {new_state.value}) - waiting for 2nd crossover")
                 elif new_state == BreakoutState.NO_BREAKOUT:
                     # Price came back into range - remove from pending queue
                     self.pending_breakout_symbols.discard(symbol)
@@ -514,21 +523,21 @@ class ORBStrategy:
                     # Determine initial state
                     if current_price > opening_range.high:
                         initial_state = BreakoutState.UPSIDE_BREAKOUT
-                        # If already broken out at ORB end, queue for evaluation
-                        self.pending_breakout_symbols.add(symbol)
+                        # Count as first crossover - do NOT queue for trade (skip first crossover)
+                        self.crossover_counts[symbol] = 1
+                        logger.info(f"Initial breakout at ORB end (crossover #1, skipping trade): {symbol} - {initial_state.value} "
+                                    f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
                     elif current_price < opening_range.low:
                         initial_state = BreakoutState.DOWNSIDE_BREAKOUT
-                        # If already broken out at ORB end, queue for evaluation
-                        self.pending_breakout_symbols.add(symbol)
+                        # Count as first crossover - do NOT queue for trade (skip first crossover)
+                        self.crossover_counts[symbol] = 1
+                        logger.info(f"Initial breakout at ORB end (crossover #1, skipping trade): {symbol} - {initial_state.value} "
+                                    f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
                     else:
                         initial_state = BreakoutState.NO_BREAKOUT
 
                     self.breakout_states[symbol] = initial_state
                     initialized_count += 1
-
-                    if initial_state != BreakoutState.NO_BREAKOUT:
-                        logger.info(f"Initial breakout detected: {symbol} - {initial_state.value} "
-                                    f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
 
             logger.info(f"Initialized {initialized_count} symbols, {len(self.pending_breakout_symbols)} already broken out")
 
@@ -621,6 +630,13 @@ class ORBStrategy:
 
                 if not live_quote or not opening_range or breakout_state == BreakoutState.NO_BREAKOUT:
                     # No longer in breakout state or missing data
+                    self.pending_breakout_symbols.discard(symbol)
+                    continue
+
+                # Skip first crossover - only trade from 2nd crossover onwards
+                crossover_count = self.crossover_counts.get(symbol, 0)
+                if crossover_count < 2:
+                    logger.info(f"Skipping {symbol}: first crossover (count={crossover_count}), waiting for 2nd crossover")
                     self.pending_breakout_symbols.discard(symbol)
                     continue
 
