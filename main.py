@@ -303,12 +303,18 @@ def show_strategy_help():
 
     print("\n STOCK UNIVERSE (40+ Stocks):")
     stocks = {
-        "FMCG": ["NESTLEIND", "COLPAL", "HINDUNILVR", "ITC", "BRITANNIA", "DABUR", "MARICO", "TATACONSUM"],
         "IT": ["TCS", "INFY", "WIPRO", "HCLTECH", "TECHM", "LTI"],
         "Banking": ["HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK", "INDUSINDBK"],
-        "Auto": ["MARUTI", "TATAMOTORS", "BAJAJ-AUTO", "M&M", "HEROMOTOCO", "EICHERMOT"],
-        "Energy": ["RELIANCE", "ONGC", "IOC", "BPCL"],
-        "Others": ["NTPC", "POWERGRID", "SUNPHARMA", "DRREDDY", "TATASTEEL", "JSWSTEEL"]
+        "Renewable Energy": ["ADANIGREEN", "TATAPOWER", "NTPCGREEN", "SJVN", "CESC"],
+        "GAS": ["IGL", "MGL", "GUJGASLTD", "PETRONET"],
+        "Defense": ["HAL", "BEL", "MAZDOCK", "DATAPATTNS"],
+        "Sugar - Ethanol": ["EIDPARRY", "BALRAMCHIN", "RENUKA", "TRIVENIT", "BAJAJHIND"],
+        "Pharmaceuticals": ["SUNPHARMA", "DIVISLAB", "CIPLA"],
+        "Petroleum": ["IOC", "BPCL", "HPCL"],
+        "Airlines": ["INDIGO"],
+        "Paints": ["ASIANPAINT", "BERGEPAINT", "KANSAINER", "INDIGOPNT", "JSWPAINT"],
+        "Tyres": ["CEAT", "MRF", "APOLLOTYRE", "JKTYRE", "BALKRISIND"],
+        "Auto": ["MARUTI", "TATAMOTORS", "BAJAJ-AUTO", "M&M", "HEROMOTOCO", "EICHERMOT"]
     }
 
     for sector, stock_list in stocks.items():
