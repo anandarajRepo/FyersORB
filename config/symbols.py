@@ -95,9 +95,14 @@ class ORBSymbolManager:
         # Create reverse mapping for quick lookups
         self._reverse_mappings = {v: k for k, v in self._symbol_mappings.items()}
 
+        # Case-insensitive lookup index (uppercase key -> fyers symbol)
+        self._upper_mappings: Dict[str, str] = {
+            k.upper(): v for k, v in self._symbol_mappings.items()
+        }
+
     def get_fyers_symbol(self, symbol: str) -> str:
-        """Get Fyers format symbol"""
-        return self._symbol_mappings.get(symbol.upper())
+        """Get Fyers format symbol (case-insensitive)"""
+        return self._upper_mappings.get(symbol.upper())
 
     def get_display_symbol(self, fyers_symbol: str) -> str:
         """Get display symbol from Fyers format"""
@@ -116,8 +121,8 @@ class ORBSymbolManager:
         return self._symbol_mappings.copy(), self._reverse_mappings.copy()
 
     def validate_symbol(self, symbol: str) -> bool:
-        """Check if symbol is supported"""
-        return symbol.upper() in self._symbol_mappings
+        """Check if symbol is supported (case-insensitive)"""
+        return symbol.upper() in self._upper_mappings
 
     def add_symbol(self, symbol: str, fyers_symbol: str) -> bool:
         """
@@ -125,9 +130,10 @@ class ORBSymbolManager:
         Returns True if the symbol was newly added, False if it already existed.
         """
         symbol = symbol.upper()
-        if symbol in self._symbol_mappings:
+        if symbol in self._upper_mappings:
             return False
         self._symbol_mappings[symbol] = fyers_symbol
+        self._upper_mappings[symbol] = fyers_symbol
         self._reverse_mappings[fyers_symbol] = symbol
         return True
 
