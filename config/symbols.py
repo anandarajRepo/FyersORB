@@ -42,7 +42,7 @@ class ORBSymbolManager:
             "EID Parry (India)": "NSE:EIDPARRY-EQ",
             "Balrampur Chini Mills": "NSE:BALRAMCHIN-EQ",
             "Shree Renuka Sugars": "NSE:RENUKA-EQ",
-            "Triveni Engineering & Industries": "NSE:TRIVENIT-EQ",
+            "Triveni Engineering & Industries": "NSE:TRIVENI-EQ",
             "Bajaj Hindusthan Sugar": "NSE:BAJAJHIND-EQ",
 
             # Pharmaceuticals
@@ -53,7 +53,7 @@ class ORBSymbolManager:
             # Petroluem (Oil Marketing Companies)
             "Indian Oil Corporation": "NSE:IOC-EQ",
             "Bharat Petroleum Corporation": "NSE:BPCL-EQ",
-            "Hindustan Petroleum Corporation": "NSE:HPCL-EQ",
+            "Hindustan Petroleum Corporation": "NSE:HINDPETRO-EQ",
 
             # Airlines
             "InterGlobe Aviation": "NSE:INDIGO-EQ",
@@ -62,8 +62,7 @@ class ORBSymbolManager:
             "Asian Paints": "NSE:ASIANPAINT-EQ",
             "Berger Paints India": "NSE:BERGEPAINT-EQ",
             "Kansai Nerolac Paints": "NSE:KANSAINER-EQ",
-            "Indigo Paints": "NSE:INDIGOPNT-EQ",
-            "JSW Paints": "NSE:JSWPAINT-EQ",
+            "Indigo Paints": "NSE:INDIGOPNTS-EQ",
 
             # Tyres
             "CEAT": "NSE:CEATLTD-EQ",
