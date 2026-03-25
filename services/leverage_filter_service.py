@@ -107,7 +107,7 @@ class LeverageFilterService:
             auth_header = "{}:{}".format(
                 self.fyers_config.client_id, self.fyers_config.access_token
             )
-            payload = {
+            order = {
                 "symbol": fyers_symbol,
                 "qty": 1,
                 "side": 1,          # Buy side
@@ -116,9 +116,11 @@ class LeverageFilterService:
                 "limitPrice": 0,
                 "stopPrice": 0,
             }
+            # Fyers API v3: span_margin expects orders wrapped in a "data" array
+            payload = {"data": [order]}
             raw = requests.post(
-                "https://api.fyers.in/api/v3/span_margin",
-                data=json.dumps(payload),
+                f"{self.fyers_config.base_url}/span_margin",
+                json=payload,
                 headers={
                     "Authorization": auth_header,
                     "Content-Type": "application/json",
@@ -132,7 +134,9 @@ class LeverageFilterService:
                 logger.warning(f"Margin API failed for {symbol}: {error_msg}")
                 return None
 
-            margin_data = response.get('data', {})
+            # data is an array (one entry per submitted order)
+            data_list = response.get('data', [])
+            margin_data = data_list[0] if data_list else {}
             required_margin = float(margin_data.get('required_margin', 0))
 
             if required_margin <= 0:
