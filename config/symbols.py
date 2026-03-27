@@ -22,8 +22,8 @@ class ORBSymbolManager:
             # Renewables — Structural Beneficiaries
             "ADANIGREEN": "NSE:ADANIGREEN-EQ",
             "TATAPOWER": "NSE:TATAPOWER-EQ",
-            "NTPCGREEN": "NSE:NTPCGREEN-EQ",
-            "SJVN": "NSE:SJVN-EQ",
+            # "NTPCGREEN": "NSE:NTPCGREEN-EQ",
+            # "SJVN": "NSE:SJVN-EQ",
             "CESC": "NSE:CESC-EQ",
 
             # City Gas / LNG Distribution
@@ -41,9 +41,9 @@ class ORBSymbolManager:
             # Sugar - Ethanol
             "EID Parry (India)": "NSE:EIDPARRY-EQ",
             "Balrampur Chini Mills": "NSE:BALRAMCHIN-EQ",
-            "Shree Renuka Sugars": "NSE:RENUKA-EQ",
+            # "Shree Renuka Sugars": "NSE:RENUKA-EQ",
             "Triveni Engineering & Industries": "NSE:TRIVENI-EQ",
-            "Bajaj Hindusthan Sugar": "NSE:BAJAJHIND-EQ",
+            # "Bajaj Hindusthan Sugar": "NSE:BAJAJHIND-EQ",
 
             # Pharmaceuticals
             "Sun Pharmaceutical Industries": "NSE:SUNPHARMA-EQ",
