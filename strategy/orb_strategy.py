@@ -110,10 +110,18 @@ class ORBStrategy:
         # Track number of crossovers per symbol (skip trade on first crossover)
         self.crossover_counts: Dict[str, int] = {}
 
+        # Track timestamp of 1st crossover per symbol (for 30s gap validation)
+        self.first_crossover_time: Dict[str, Optional[datetime]] = {}
+
+        # Track direction of 1st crossover per symbol (only count same-direction crossovers)
+        self.first_crossover_direction: Dict[str, Optional[BreakoutState]] = {}
+
         # Initialize all symbols to NO_BREAKOUT state
         for symbol in self.trading_symbols:
             self.breakout_states[symbol] = BreakoutState.NO_BREAKOUT
             self.crossover_counts[symbol] = 0
+            self.first_crossover_time[symbol] = None
+            self.first_crossover_direction[symbol] = None
 
         logger.info(f"Initialized breakout state tracking for {len(self.trading_symbols)} symbols")
         # ========================================================
@@ -400,13 +408,35 @@ class ORBStrategy:
 
                 # Queue symbol for signal generation if it's a breakout transition
                 if new_state in [BreakoutState.UPSIDE_BREAKOUT, BreakoutState.DOWNSIDE_BREAKOUT]:
-                    self.crossover_counts[symbol] = self.crossover_counts.get(symbol, 0) + 1
-                    crossover_num = self.crossover_counts[symbol]
-                    if crossover_num >= 2:
-                        self.pending_breakout_symbols.add(symbol)
-                        logger.info(f"Queued {symbol} for signal evaluation (crossover #{crossover_num}, {new_state.value})")
+                    first_direction = self.first_crossover_direction.get(symbol)
+
+                    if first_direction is None:
+                        # This is the very first crossover - record direction and skip trade
+                        self.crossover_counts[symbol] = 1
+                        self.first_crossover_direction[symbol] = new_state
+                        self.first_crossover_time[symbol] = datetime.now()
+                        logger.info(f"Skipping first crossover for {symbol} (crossover #1, {new_state.value}) - waiting for 2nd crossover in same direction")
+                    elif new_state != first_direction:
+                        # Opposite direction crossover - reset counter and treat this as new first crossover
+                        self.crossover_counts[symbol] = 1
+                        self.first_crossover_direction[symbol] = new_state
+                        self.first_crossover_time[symbol] = datetime.now()
+                        logger.info(f"Opposite direction crossover for {symbol} ({new_state.value}), resetting crossover count - waiting for 2nd crossover in same direction")
                     else:
-                        logger.info(f"Skipping first crossover for {symbol} (crossover #{crossover_num}, {new_state.value}) - waiting for 2nd crossover")
+                        # Same direction as first crossover - count it
+                        self.crossover_counts[symbol] = self.crossover_counts.get(symbol, 0) + 1
+                        crossover_num = self.crossover_counts[symbol]
+                        first_time = self.first_crossover_time.get(symbol)
+                        if first_time is None:
+                            elapsed_seconds = 9999  # No first crossover time recorded; treat as valid
+                        else:
+                            elapsed_seconds = (datetime.now() - first_time).total_seconds()
+
+                        if elapsed_seconds >= 30:
+                            self.pending_breakout_symbols.add(symbol)
+                            logger.info(f"Queued {symbol} for signal evaluation (crossover #{crossover_num}, {new_state.value}, {elapsed_seconds:.1f}s since 1st crossover)")
+                        else:
+                            logger.info(f"Skipping {symbol} crossover #{crossover_num} ({new_state.value}): only {elapsed_seconds:.1f}s since 1st crossover (need >= 30s)")
                 elif new_state == BreakoutState.NO_BREAKOUT:
                     # Price came back into range - remove from pending queue
                     self.pending_breakout_symbols.discard(symbol)
@@ -525,12 +555,16 @@ class ORBStrategy:
                         initial_state = BreakoutState.UPSIDE_BREAKOUT
                         # Count as first crossover - do NOT queue for trade (skip first crossover)
                         self.crossover_counts[symbol] = 1
+                        self.first_crossover_time[symbol] = datetime.now()
+                        self.first_crossover_direction[symbol] = initial_state
                         logger.info(f"Initial breakout at ORB end (crossover #1, skipping trade): {symbol} - {initial_state.value} "
                                     f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
                     elif current_price < opening_range.low:
                         initial_state = BreakoutState.DOWNSIDE_BREAKOUT
                         # Count as first crossover - do NOT queue for trade (skip first crossover)
                         self.crossover_counts[symbol] = 1
+                        self.first_crossover_time[symbol] = datetime.now()
+                        self.first_crossover_direction[symbol] = initial_state
                         logger.info(f"Initial breakout at ORB end (crossover #1, skipping trade): {symbol} - {initial_state.value} "
                                     f"(Price: Rs.{current_price:.2f}, Range: Rs.{opening_range.low:.2f}-{opening_range.high:.2f})")
                     else:
@@ -639,6 +673,15 @@ class ORBStrategy:
                     logger.info(f"Skipping {symbol}: first crossover (count={crossover_count}), waiting for 2nd crossover")
                     self.pending_breakout_symbols.discard(symbol)
                     continue
+
+                # Enforce 30s minimum gap between 1st and current crossover
+                first_time = self.first_crossover_time.get(symbol)
+                if first_time is not None:
+                    elapsed_seconds = (datetime.now() - first_time).total_seconds()
+                    if elapsed_seconds < 30:
+                        logger.info(f"Skipping {symbol}: only {elapsed_seconds:.1f}s since 1st crossover (need >= 30s)")
+                        self.pending_breakout_symbols.discard(symbol)
+                        continue
 
                 # Determine signal type from breakout state
                 if breakout_state == BreakoutState.UPSIDE_BREAKOUT:

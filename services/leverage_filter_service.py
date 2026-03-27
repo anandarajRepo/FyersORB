@@ -107,7 +107,7 @@ class LeverageFilterService:
             auth_header = "{}:{}".format(
                 self.fyers_config.client_id, self.fyers_config.access_token
             )
-            payload = {
+            order = {
                 "symbol": fyers_symbol,
                 "qty": 1,
                 "side": 1,          # Buy side
@@ -116,23 +116,54 @@ class LeverageFilterService:
                 "limitPrice": 0,
                 "stopPrice": 0,
             }
+            # Fyers API v3: span_margin expects orders wrapped in a "data" array
+            payload = {"data": [order]}
             raw = requests.post(
-                "https://api.fyers.in/api/v3/span_margin",
-                data=json.dumps(payload),
+                f"{self.fyers_config.base_url}/span_margin",
+                json=payload,
                 headers={
                     "Authorization": auth_header,
                     "Content-Type": "application/json",
                 },
                 timeout=10,
             )
-            response = raw.json() if raw.content else {}
+            if not raw.content:
+                response = {}
+            else:
+                try:
+                    response = raw.json()
+                except json.JSONDecodeError:
+                    # Fyers sometimes returns a non-JSON prefix (e.g. "true") before
+                    # the actual JSON payload.  Locate the first { or [ and parse from there.
+                    text = raw.text or ""
+                    logger.debug(
+                        f"Non-JSON prefix in span_margin response for {symbol}: {text[:120]!r}"
+                    )
+                    start = next((i for i, c in enumerate(text) if c in "{["), None)
+                    if start is not None:
+                        try:
+                            response = json.loads(text[start:])
+                        except json.JSONDecodeError as inner:
+                            logger.error(
+                                f"Could not parse span_margin response for {symbol} "
+                                f"(raw={text[:200]!r}): {inner}"
+                            )
+                            return None
+                    else:
+                        logger.error(
+                            f"No JSON object found in span_margin response for {symbol}: "
+                            f"{text[:200]!r}"
+                        )
+                        return None
 
             if not response or response.get('s') != 'ok':
                 error_msg = response.get('message', 'Unknown error') if response else 'No response'
                 logger.warning(f"Margin API failed for {symbol}: {error_msg}")
                 return None
 
-            margin_data = response.get('data', {})
+            # data is an array (one entry per submitted order)
+            data_list = response.get('data', [])
+            margin_data = data_list[0] if data_list else {}
             required_margin = float(margin_data.get('required_margin', 0))
 
             if required_margin <= 0:
