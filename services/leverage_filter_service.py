@@ -127,7 +127,34 @@ class LeverageFilterService:
                 },
                 timeout=10,
             )
-            response = raw.json() if raw.content else {}
+            if not raw.content:
+                response = {}
+            else:
+                try:
+                    response = raw.json()
+                except json.JSONDecodeError:
+                    # Fyers sometimes returns a non-JSON prefix (e.g. "true") before
+                    # the actual JSON payload.  Locate the first { or [ and parse from there.
+                    text = raw.text or ""
+                    logger.debug(
+                        f"Non-JSON prefix in span_margin response for {symbol}: {text[:120]!r}"
+                    )
+                    start = next((i for i, c in enumerate(text) if c in "{["), None)
+                    if start is not None:
+                        try:
+                            response = json.loads(text[start:])
+                        except json.JSONDecodeError as inner:
+                            logger.error(
+                                f"Could not parse span_margin response for {symbol} "
+                                f"(raw={text[:200]!r}): {inner}"
+                            )
+                            return None
+                    else:
+                        logger.error(
+                            f"No JSON object found in span_margin response for {symbol}: "
+                            f"{text[:200]!r}"
+                        )
+                        return None
 
             if not response or response.get('s') != 'ok':
                 error_msg = response.get('message', 'Unknown error') if response else 'No response'
