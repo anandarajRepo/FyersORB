@@ -5,7 +5,10 @@ Order Management System for ORB Strategy
 Handles actual order placement with Fyers broker
 """
 
+import asyncio
+import collections
 import logging
+import time
 from typing import Optional, Dict, Any
 from datetime import datetime
 from fyers_apiv3 import fyersModel
@@ -15,6 +18,32 @@ from models.trading_models import Position, ORBSignal
 from utils import round_to_tick_size
 
 logger = logging.getLogger(__name__)
+
+
+class OrderRateLimiter:
+    """Sliding-window rate limiter enforcing SEBI's 10 orders/modifications per second limit."""
+
+    def __init__(self, max_per_second: int = 10):
+        self.max_per_second = max_per_second
+        self._timestamps: collections.deque = collections.deque()
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        """Block until a slot is available within the rate limit window."""
+        async with self._lock:
+            while True:
+                now = time.monotonic()
+                # Evict timestamps older than 1 second
+                while self._timestamps and now - self._timestamps[0] >= 1.0:
+                    self._timestamps.popleft()
+
+                if len(self._timestamps) < self.max_per_second:
+                    self._timestamps.append(now)
+                    return
+
+                # Sleep until the oldest slot expires, then recheck
+                wait_time = 1.0 - (now - self._timestamps[0]) + 0.001
+                await asyncio.sleep(wait_time)
 
 
 class OrderManager:
@@ -36,6 +65,12 @@ class OrderManager:
         # Circuit limit cache (symbol -> {lower_circuit, upper_circuit, timestamp})
         self._circuit_limit_cache: Dict[str, Dict[str, Any]] = {}
 
+        # SEBI compliance: rate limiter (10 orders/modifications per second)
+        self._rate_limiter = OrderRateLimiter(max_per_second=10)
+
+        # SEBI compliance: MPP protection percentage for market-to-limit conversion
+        self._mpp_protection_pct: float = fyers_config.mpp_protection_pct
+
     async def place_entry_order(self, position: Position) -> bool:
         """
         Place entry order for a new position
@@ -50,22 +85,19 @@ class OrderManager:
             # Determine order side
             side = 1 if position.signal_type == SignalType.LONG else -1
 
-            # Prepare order data
-            order_data = {
-                "symbol": self._get_fyers_symbol(position.symbol),
-                "qty": abs(position.quantity),
-                "type": 2,  # Market order
-                "side": side,
-                "productType": "INTRADAY",  # Intraday for ORB
-                "limitPrice": 0,
-                "stopPrice": 0,
-                "validity": "DAY",
-                "disclosedQty": 0,
-                "offlineOrder": False
-            }
+            # SEBI compliance: use MPP limit order instead of market order
+            order_data = await self._build_mpp_order_data(
+                position.symbol, abs(position.quantity), side
+            )
 
-            logger.info(f"Placing entry order for {position.symbol}: "
-                        f"Side={side}, Qty={abs(position.quantity)}, Price={position.entry_price}")
+            logger.info(
+                f"Placing MPP entry order for {position.symbol}: "
+                f"Side={side}, Qty={abs(position.quantity)}, "
+                f"LimitPrice={order_data['limitPrice']:.2f} (was market)"
+            )
+
+            # SEBI compliance: enforce 10 orders/sec rate limit
+            await self._rate_limiter.acquire()
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -127,6 +159,9 @@ class OrderManager:
 
             logger.info(f"Placing stop loss order for {position.symbol}: "
                         f"Side={side}, Qty={abs(position.quantity)}, Stop={rounded_stop:.2f}")
+
+            # SEBI compliance: enforce 10 orders/sec rate limit
+            await self._rate_limiter.acquire()
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -204,6 +239,9 @@ class OrderManager:
             logger.info(f"Placing target order for {position.symbol}: "
                         f"Side={side}, Qty={abs(position.quantity)}, Target={rounded_target:.2f}")
 
+            # SEBI compliance: enforce 10 orders/sec rate limit
+            await self._rate_limiter.acquire()
+
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
 
@@ -269,29 +307,26 @@ class OrderManager:
                 logger.info(f"Position {position.symbol} already exited via broker-side order")
                 return True  # Return True since position is effectively closed
 
-            # Cancel pending SL/Target orders FIRST before placing market exit
+            # Cancel pending SL/Target orders FIRST before placing exit
             # This prevents race condition where broker might fill SL after our check
             await self.cancel_pending_orders(position)
 
             # Determine order side (opposite of entry)
             side = -1 if position.signal_type == SignalType.LONG else 1
 
-            # Prepare market exit order
-            order_data = {
-                "symbol": self._get_fyers_symbol(position.symbol),
-                "qty": abs(position.quantity),
-                "type": 2,  # Market order
-                "side": side,
-                "productType": "INTRADAY",
-                "limitPrice": 0,  # Use current price as limit
-                "stopPrice": 0,
-                "validity": "DAY",
-                "disclosedQty": 0,
-                "offlineOrder": False
-            }
+            # SEBI compliance: use MPP limit order instead of market order
+            order_data = await self._build_mpp_order_data(
+                position.symbol, abs(position.quantity), side
+            )
 
-            logger.info(f"Placing exit order for {position.symbol}: "
-                        f"Side={side}, Qty={abs(position.quantity)}, Price={exit_price}")
+            logger.info(
+                f"Placing MPP exit order for {position.symbol}: "
+                f"Side={side}, Qty={abs(position.quantity)}, "
+                f"LimitPrice={order_data['limitPrice']:.2f} (ref price={exit_price})"
+            )
+
+            # SEBI compliance: enforce 10 orders/sec rate limit
+            await self._rate_limiter.acquire()
 
             # Place order via Fyers API
             response = self.fyers.place_order(data=order_data)
@@ -352,6 +387,9 @@ class OrderManager:
 
             logger.info(f"Modifying stop loss for {position.symbol}: "
                         f"Order ID={position.sl_order_id}, New Stop={rounded_stop}")
+
+            # SEBI compliance: modifications count toward 10 orders/sec rate limit
+            await self._rate_limiter.acquire()
 
             # Modify order via Fyers API
             response = self.fyers.modify_order(data=modify_data)
@@ -585,6 +623,68 @@ class OrderManager:
         except Exception as e:
             logger.error(f"Error validating circuit limits for {symbol}: {e}")
             return True  # Allow order on error, exchange will validate
+
+    async def _get_ltp(self, symbol: str) -> Optional[float]:
+        """Fetch last traded price for a symbol (used for MPP order calculation)."""
+        try:
+            fyers_symbol = self._get_fyers_symbol(symbol)
+            response = self.fyers.quotes(data={"symbols": fyers_symbol})
+            if response and response.get('s') == 'ok':
+                quotes = response.get('d', [])
+                if quotes:
+                    return quotes[0].get('v', {}).get('lp')  # 'lp' = last price
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching LTP for {symbol}: {e}")
+            return None
+
+    async def _build_mpp_order_data(self, symbol: str, qty: int, side: int,
+                                    product_type: str = "INTRADAY") -> Dict[str, Any]:
+        """Build an MPP (Market Price Protection) order per SEBI guidelines.
+
+        From April 1, 2026, market orders are prohibited. MPP orders are limit
+        orders placed at LTP +/- mpp_protection_pct% to guarantee near-market fill.
+
+        Args:
+            symbol: Display symbol (e.g. 'RELIANCE')
+            qty: Absolute order quantity
+            side: 1 = BUY, -1 = SELL
+            product_type: Fyers product type string
+
+        Returns:
+            Order data dict ready for fyers.place_order()
+
+        Raises:
+            ValueError: If LTP cannot be fetched
+        """
+        ltp = await self._get_ltp(symbol)
+        if not ltp or ltp <= 0:
+            raise ValueError(f"Cannot build MPP order for {symbol}: LTP unavailable")
+
+        # BUY: bid above LTP to ensure fill; SELL: bid below LTP
+        if side == 1:
+            raw_limit = ltp * (1 + self._mpp_protection_pct / 100)
+        else:
+            raw_limit = ltp * (1 - self._mpp_protection_pct / 100)
+
+        limit_price = round_to_tick_size(raw_limit)
+        logger.debug(
+            f"MPP order for {symbol}: side={side}, LTP={ltp:.2f}, "
+            f"protection={self._mpp_protection_pct}%, limit={limit_price:.2f}"
+        )
+
+        return {
+            "symbol": self._get_fyers_symbol(symbol),
+            "qty": abs(qty),
+            "type": 1,  # Limit order (SEBI: market orders replaced by MPP)
+            "side": side,
+            "productType": product_type,
+            "limitPrice": limit_price,
+            "stopPrice": 0,
+            "validity": "DAY",
+            "disclosedQty": 0,
+            "offlineOrder": False
+        }
 
     def _get_fyers_symbol(self, symbol: str) -> str:
         """

@@ -13,6 +13,7 @@ import json
 import getpass
 import sys
 import time
+import datetime
 from typing import Optional, Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -392,24 +393,46 @@ class FyersAuthManager:
             return False
 
     def get_valid_access_token(self) -> Optional[str]:
-        """Get a valid access token, using refresh token if available"""
+        """Get a valid access token, enforcing SEBI daily 2FA requirement.
+
+        Per SEBI guidelines (effective April 1, 2026): continuous login sessions
+        are discontinued. Full re-authentication is required each trading day.
+        """
         try:
-            # First, check if current access token is still valid
+            today = datetime.date.today().isoformat()
+            last_auth_date = os.environ.get('FYERS_LAST_AUTH_DATE', '')
+
+            # SEBI daily 2FA: if today's auth hasn't been completed, force full re-auth
+            if last_auth_date != today:
+                logger.info(
+                    f"SEBI daily 2FA required: last auth date was '{last_auth_date or 'never'}', "
+                    f"today is {today}. Initiating full re-authentication."
+                )
+                print(f"\n{'=' * 60}")
+                print("SEBI DAILY 2FA AUTHENTICATION REQUIRED")
+                print("=" * 60)
+                print(f"Per SEBI guidelines, daily authentication is mandatory.")
+                print(f"Last authenticated: {last_auth_date or 'never'}")
+                access_token = self.setup_full_authentication()
+                if access_token:
+                    self.save_to_env('FYERS_LAST_AUTH_DATE', today)
+                    logger.info(f"SEBI daily 2FA completed successfully for {today}")
+                return access_token
+
+            # Same-day: validate existing token
             if self.access_token and self.is_token_valid(self.access_token):
                 logger.info("Current access token is still valid")
                 return self.access_token
 
             logger.info("Access token is invalid or expired")
 
-            # Try to use refresh token if available
+            # Same-day intraday refresh is allowed (token expired mid-session)
             if self.refresh_token:
-                logger.info("Attempting to refresh access token...")
+                logger.info("Attempting intraday token refresh...")
                 new_access_token, new_refresh_token = self.generate_access_token_with_refresh(self.refresh_token)
 
                 if new_access_token:
-                    logger.info("Successfully refreshed access token")
-
-                    # Save new tokens
+                    logger.info("Intraday token refresh successful")
                     self.save_to_env('FYERS_ACCESS_TOKEN', new_access_token)
                     self.access_token = new_access_token
 
@@ -419,11 +442,14 @@ class FyersAuthManager:
 
                     return new_access_token
                 else:
-                    logger.warning("Failed to refresh access token")
+                    logger.warning("Intraday token refresh failed")
 
-            # If refresh failed or no refresh token, require full authentication
+            # Intraday refresh failed — fall back to full re-authentication
             logger.info("Full re-authentication required")
-            return self.setup_full_authentication()
+            access_token = self.setup_full_authentication()
+            if access_token:
+                self.save_to_env('FYERS_LAST_AUTH_DATE', today)
+            return access_token
 
         except Exception as e:
             logger.error(f"Error getting valid access token: {e}")
