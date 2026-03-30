@@ -7,7 +7,7 @@ Analyzes multi-day trend direction for individual stocks and the Nifty 50 index.
 Used to filter ORB signals so orders are placed only in the direction of the
 prevailing trend.
 
-Trend Analysis Components:
+Historical Trend Analysis Components (daily candles):
   1. EMA Alignment       - EMA9 vs EMA21 vs EMA50 structure
   2. Swing Structure     - Higher highs / lower lows pattern
   3. Price Slope         - % change over lookback period
@@ -18,6 +18,15 @@ Composite Decision (weighted voting):
   - Swing Structure: 30%
   - Price Slope    : 20%
   - ADX / DI       : 15%
+
+Intraday Trend Analysis (5-min candles, current session):
+  Runs after the ORB period ends and is refreshed periodically throughout the day.
+  Components:
+  1. EMA Alignment  - EMA5 vs EMA13 on intraday candles
+  2. VWAP Signal    - Price relative to session VWAP
+  3. Session Slope  - % change from open to current price
+
+  Combined with historical trend via configurable weights (default 60/40).
 """
 
 import logging
@@ -89,10 +98,44 @@ class TrendAnalysis:
         return self.strength >= 60.0
 
 
+@dataclass
+class IntradayTrendAnalysis:
+    """
+    Intraday trend result derived from current-session candles (e.g. 5-min bars).
+    Computed after the ORB period ends and refreshed periodically.
+    """
+    symbol: str
+    trend: TrendDirection
+    strength: float = 0.0   # 0-100
+
+    # Sub-signals
+    ema_signal: TrendDirection = TrendDirection.SIDEWAYS
+    vwap_signal: TrendDirection = TrendDirection.SIDEWAYS
+    slope_signal: TrendDirection = TrendDirection.SIDEWAYS
+
+    # Raw values
+    ema5: float = 0.0
+    ema13: float = 0.0
+    vwap: float = 0.0
+    session_slope: float = 0.0    # % change from session open to last price
+    candles_count: int = 0
+    analyzed_at: datetime = field(default_factory=datetime.now)
+    data_quality: str = "UNKNOWN"
+
+    @property
+    def is_uptrend(self) -> bool:
+        return self.trend == TrendDirection.UPTREND
+
+    @property
+    def is_downtrend(self) -> bool:
+        return self.trend == TrendDirection.DOWNTREND
+
+
 class TrendDirectionService:
     """
     Determines multi-day trend direction for stocks and Nifty 50.
-    Results are cached once per day and reused across signal evaluations.
+    Historical results are cached once per day and reused across signal evaluations.
+    Intraday results are refreshed periodically (configurable interval).
     """
 
     def __init__(self, fyers_config: FyersConfig):
@@ -100,10 +143,16 @@ class TrendDirectionService:
         self.fyers_client: Optional[fyersModel.FyersModel] = None
         self._initialize_client()
 
-        # Per-day cache
+        # Per-day historical cache
         self._symbol_trend_cache: Dict[str, TrendAnalysis] = {}
         self._nifty_trend: Optional[TrendAnalysis] = None
         self._cache_date: Optional[str] = None
+
+        # Intraday cache (refreshed periodically during the session)
+        self._intraday_trend_cache: Dict[str, IntradayTrendAnalysis] = {}
+        self._intraday_nifty_trend: Optional[IntradayTrendAnalysis] = None
+        self._intraday_last_refresh: Optional[datetime] = None
+        self._intraday_cache_date: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -159,6 +208,48 @@ class TrendDirectionService:
 
         except Exception as e:
             logger.error(f"Error fetching candles for {fyers_symbol}: {e}")
+            return None
+
+    def _fetch_intraday_candles(self, fyers_symbol: str,
+                                resolution: str = "5") -> Optional[List]:
+        """
+        Fetch intraday OHLCV candles for the current trading session.
+        Uses today's date as both range_from and range_to so only today's bars
+        are returned (market open → now).
+        """
+        try:
+            if not self.fyers_client:
+                logger.warning(f"Fyers client not available for {fyers_symbol}")
+                return None
+
+            today = datetime.now().strftime("%Y-%m-%d")
+            data = {
+                "symbol": fyers_symbol,
+                "resolution": resolution,
+                "date_format": "1",
+                "range_from": today,
+                "range_to": today,
+                "cont_flag": "1"
+            }
+
+            response = self.fyers_client.history(data=data)
+
+            if response and response.get('s') == 'ok':
+                candles = response.get('candles', [])
+                if candles:
+                    logger.debug(
+                        f"Fetched {len(candles)} intraday ({resolution}-min) candles for {fyers_symbol}"
+                    )
+                    return candles
+                logger.debug(f"No intraday candles yet for {fyers_symbol}")
+                return None
+            else:
+                error_msg = response.get('message', 'Unknown error') if response else 'No response'
+                logger.warning(f"Failed to fetch intraday candles for {fyers_symbol}: {error_msg}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching intraday candles for {fyers_symbol}: {e}")
             return None
 
     # ------------------------------------------------------------------
@@ -241,6 +332,18 @@ class TrendDirectionService:
         start = closes[-(lookback + 1)]
         end = closes[-1]
         return ((end - start) / start) * 100 if start > 0 else 0.0
+
+    def _calculate_vwap(self, highs: np.ndarray, lows: np.ndarray,
+                         closes: np.ndarray, volumes: np.ndarray) -> float:
+        """
+        Compute session VWAP = sum(typical_price × volume) / sum(volume).
+        Returns last close if volume data is unavailable.
+        """
+        total_volume = float(np.sum(volumes))
+        if total_volume <= 0:
+            return float(closes[-1])
+        typical_prices = (highs + lows + closes) / 3.0
+        return float(np.sum(typical_prices * volumes) / total_volume)
 
     # ------------------------------------------------------------------
     # Core analysis
@@ -369,6 +472,242 @@ class TrendDirectionService:
                                  strength=0.0, data_quality="ERROR")
 
     # ------------------------------------------------------------------
+    # Intraday trend analysis
+    # ------------------------------------------------------------------
+
+    def analyze_intraday_trend(self, symbol: str, fyers_symbol: str,
+                                resolution: str = "5") -> IntradayTrendAnalysis:
+        """
+        Derive intraday trend for *symbol* from current-session candles.
+
+        Components (equal 1/3 weights):
+          1. EMA Alignment  – EMA5 vs EMA13 on intraday bars
+          2. VWAP Signal    – last price vs session VWAP
+          3. Session Slope  – % change from first bar open to last close
+
+        Returns an IntradayTrendAnalysis object.
+        """
+        try:
+            candles = self._fetch_intraday_candles(fyers_symbol, resolution)
+
+            if not candles or len(candles) < 3:
+                logger.debug(f"Insufficient intraday candles for {symbol} ({len(candles) if candles else 0})")
+                return IntradayTrendAnalysis(
+                    symbol=symbol,
+                    trend=TrendDirection.SIDEWAYS,
+                    strength=0.0,
+                    data_quality="INSUFFICIENT"
+                )
+
+            opens   = np.array([float(c[1]) for c in candles])
+            highs   = np.array([float(c[2]) for c in candles])
+            lows    = np.array([float(c[3]) for c in candles])
+            closes  = np.array([float(c[4]) for c in candles])
+            volumes = np.array([float(c[5]) for c in candles])
+
+            result = IntradayTrendAnalysis(
+                symbol=symbol,
+                trend=TrendDirection.SIDEWAYS,
+                strength=0.0,
+                candles_count=len(candles),
+                data_quality="GOOD" if len(candles) >= 6 else "PARTIAL"
+            )
+
+            last_price = float(closes[-1])
+
+            # ── 1. EMA Alignment (EMA5 / EMA13) ──────────────────────────
+            result.ema5  = self._calculate_ema(closes, min(5,  len(closes)))
+            result.ema13 = self._calculate_ema(closes, min(13, len(closes)))
+
+            if last_price > result.ema5 and result.ema5 > result.ema13:
+                result.ema_signal = TrendDirection.UPTREND
+            elif last_price < result.ema5 and result.ema5 < result.ema13:
+                result.ema_signal = TrendDirection.DOWNTREND
+            else:
+                result.ema_signal = TrendDirection.SIDEWAYS
+
+            # ── 2. VWAP Signal ────────────────────────────────────────────
+            result.vwap = self._calculate_vwap(highs, lows, closes, volumes)
+
+            if last_price > result.vwap * 1.001:      # 0.1% buffer above VWAP → bullish
+                result.vwap_signal = TrendDirection.UPTREND
+            elif last_price < result.vwap * 0.999:    # 0.1% buffer below VWAP → bearish
+                result.vwap_signal = TrendDirection.DOWNTREND
+            else:
+                result.vwap_signal = TrendDirection.SIDEWAYS
+
+            # ── 3. Session Slope (open of first candle → last close) ──────
+            session_open = float(opens[0])
+            result.session_slope = ((last_price - session_open) / session_open * 100
+                                    if session_open > 0 else 0.0)
+
+            if result.session_slope > 0.5:
+                result.slope_signal = TrendDirection.UPTREND
+            elif result.session_slope < -0.5:
+                result.slope_signal = TrendDirection.DOWNTREND
+            else:
+                result.slope_signal = TrendDirection.SIDEWAYS
+
+            # ── 4. Composite (equal 1/3 weights) ─────────────────────────
+            signals = [result.ema_signal, result.vwap_signal, result.slope_signal]
+            up_score   = sum(1 for s in signals if s == TrendDirection.UPTREND)   / 3.0
+            down_score = sum(1 for s in signals if s == TrendDirection.DOWNTREND) / 3.0
+
+            if up_score >= 0.55:
+                result.trend    = TrendDirection.UPTREND
+                result.strength = min(100.0, up_score * 100)
+            elif down_score >= 0.55:
+                result.trend    = TrendDirection.DOWNTREND
+                result.strength = min(100.0, down_score * 100)
+            else:
+                result.trend    = TrendDirection.SIDEWAYS
+                result.strength = min(100.0, max(up_score, down_score) * 100)
+
+            result.analyzed_at = datetime.now()
+
+            logger.info(
+                f"Intraday Trend [{symbol}]: {result.trend.value}  "
+                f"strength={result.strength:.1f}  slope={result.session_slope:+.2f}%  "
+                f"EMA={result.ema_signal.value}  VWAP={result.vwap_signal.value}  "
+                f"candles={result.candles_count}"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Error analyzing intraday trend for {symbol}: {e}")
+            return IntradayTrendAnalysis(
+                symbol=symbol,
+                trend=TrendDirection.SIDEWAYS,
+                strength=0.0,
+                data_quality="ERROR"
+            )
+
+    def analyze_all_intraday_trends(
+        self,
+        symbols: List[str],
+        resolution: str = "5",
+        refresh_interval_seconds: int = 300
+    ) -> Dict[str, IntradayTrendAnalysis]:
+        """
+        Analyze intraday trend for all *symbols* plus Nifty 50.
+
+        Results are cached and refreshed only when *refresh_interval_seconds*
+        have elapsed since the last update (default: every 5 minutes).
+
+        Returns Dict mapping symbol → IntradayTrendAnalysis (key 'NIFTY50' for index).
+        """
+        now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+
+        # Reset if new trading day
+        if self._intraday_cache_date != today:
+            self._intraday_trend_cache.clear()
+            self._intraday_nifty_trend = None
+            self._intraday_last_refresh = None
+            self._intraday_cache_date = today
+
+        # Skip refresh if interval has not elapsed
+        if (self._intraday_last_refresh is not None and
+                (now - self._intraday_last_refresh).total_seconds() < refresh_interval_seconds):
+            logger.debug("Intraday trend cache still fresh – skipping refresh")
+            results: Dict[str, IntradayTrendAnalysis] = {}
+            if self._intraday_nifty_trend:
+                results["NIFTY50"] = self._intraday_nifty_trend
+            results.update(self._intraday_trend_cache)
+            return results
+
+        logger.info("Refreshing intraday trend analysis for all symbols...")
+
+        results = {}
+
+        # Nifty first
+        nifty_intraday = self.analyze_intraday_trend("NIFTY50", NIFTY50_FYERS_SYMBOL, resolution)
+        self._intraday_nifty_trend = nifty_intraday
+        results["NIFTY50"] = nifty_intraday
+        logger.info(
+            f"Nifty 50 Intraday Trend: {nifty_intraday.trend.value} "
+            f"(strength={nifty_intraday.strength:.1f}, slope={nifty_intraday.session_slope:+.2f}%)"
+        )
+
+        for symbol in symbols:
+            fyers_symbol = convert_to_fyers_format(symbol)
+            if not fyers_symbol:
+                logger.warning(f"Cannot convert {symbol} to Fyers format – skipping intraday trend")
+                continue
+            intraday = self.analyze_intraday_trend(symbol, fyers_symbol, resolution)
+            self._intraday_trend_cache[symbol] = intraday
+            results[symbol] = intraday
+
+        self._intraday_last_refresh = now
+
+        up_c   = sum(1 for v in results.values() if v.trend == TrendDirection.UPTREND   and v.symbol != "NIFTY50")
+        down_c = sum(1 for v in results.values() if v.trend == TrendDirection.DOWNTREND and v.symbol != "NIFTY50")
+        side_c = sum(1 for v in results.values() if v.trend == TrendDirection.SIDEWAYS  and v.symbol != "NIFTY50")
+        logger.info(f"Intraday trend refresh done: {up_c} UP | {down_c} DOWN | {side_c} SIDEWAYS")
+
+        return results
+
+    def get_combined_trend_direction(
+        self,
+        historical: TrendAnalysis,
+        intraday: Optional[IntradayTrendAnalysis],
+        historical_weight: float = 0.6,
+        intraday_weight: float = 0.4
+    ) -> Tuple[TrendDirection, float]:
+        """
+        Blend historical and intraday trend signals into a single combined direction.
+
+        Each trend is mapped to a signed numeric score:
+          UPTREND   → +strength/100
+          DOWNTREND → −strength/100
+          SIDEWAYS  → 0
+
+        Combined score = historical_weight × hist_score + intraday_weight × intra_score
+
+        Thresholds:
+          combined > +0.20  → UPTREND
+          combined < −0.20  → DOWNTREND
+          else              → SIDEWAYS
+
+        Returns (TrendDirection, abs_combined_score).
+        """
+        def _to_score(trend: TrendDirection, strength: float) -> float:
+            if trend == TrendDirection.UPTREND:
+                return strength / 100.0
+            if trend == TrendDirection.DOWNTREND:
+                return -(strength / 100.0)
+            return 0.0
+
+        hist_score = _to_score(historical.trend, historical.strength)
+
+        if intraday is not None and intraday.data_quality not in ("INSUFFICIENT", "ERROR"):
+            intra_score = _to_score(intraday.trend, intraday.strength)
+            combined = historical_weight * hist_score + intraday_weight * intra_score
+        else:
+            # Fall back to historical only when intraday data is unavailable
+            combined = hist_score
+
+        if combined > 0.20:
+            return TrendDirection.UPTREND, abs(combined)
+        if combined < -0.20:
+            return TrendDirection.DOWNTREND, abs(combined)
+        return TrendDirection.SIDEWAYS, abs(combined)
+
+    def get_intraday_trend(self, symbol: str) -> Optional[IntradayTrendAnalysis]:
+        """Return cached intraday trend for *symbol* (None if not yet analyzed)."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._intraday_cache_date != today:
+            return None
+        return self._intraday_trend_cache.get(symbol)
+
+    def get_intraday_nifty_trend(self) -> Optional[IntradayTrendAnalysis]:
+        """Return cached intraday Nifty trend (None if not yet analyzed today)."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._intraday_cache_date != today:
+            return None
+        return self._intraday_nifty_trend
+
+    # ------------------------------------------------------------------
     # Convenience wrappers
     # ------------------------------------------------------------------
 
@@ -439,46 +778,71 @@ class TrendDirectionService:
         signal_type: SignalType,
         stock_trend: TrendAnalysis,
         nifty_trend: TrendAnalysis,
-        filter_mode: str = "STRICT"
+        filter_mode: str = "STRICT",
+        stock_intraday: Optional[IntradayTrendAnalysis] = None,
+        nifty_intraday: Optional[IntradayTrendAnalysis] = None,
+        historical_weight: float = 0.6,
+        intraday_weight: float = 0.4,
     ) -> Tuple[bool, str]:
         """
         Decide whether a trade signal is aligned with prevailing trends.
 
+        When intraday trends are provided the decision is made on the *combined*
+        direction (historical × historical_weight + intraday × intraday_weight).
+        If intraday data is absent the historical trend alone is used (original
+        behaviour is fully preserved).
+
         Filter modes:
-          STRICT  – Reject if stock or Nifty trend is opposite to signal direction.
-          LENIENT – Reject only if BOTH stock and Nifty trend oppose the signal.
+          STRICT  – Reject if stock or Nifty combined trend is opposite to signal.
+          LENIENT – Reject only if BOTH stock and Nifty combined trends oppose signal.
 
         Returns:
             (is_aligned, reason_message)
         """
-        stock_dir = stock_trend.trend
-        nifty_dir = nifty_trend.trend
+        # Derive effective (combined) directions
+        stock_dir, stock_combined_score = self.get_combined_trend_direction(
+            stock_trend, stock_intraday, historical_weight, intraday_weight
+        )
+        nifty_dir, nifty_combined_score = self.get_combined_trend_direction(
+            nifty_trend, nifty_intraday, historical_weight, intraday_weight
+        )
+
+        # Build context string for log messages
+        intraday_ctx = ""
+        if stock_intraday and stock_intraday.data_quality not in ("INSUFFICIENT", "ERROR"):
+            intraday_ctx = (
+                f"  [intraday: stock={stock_intraday.trend.value} "
+                f"nifty={nifty_intraday.trend.value if nifty_intraday else 'N/A'}]"
+            )
 
         if signal_type == SignalType.LONG:
             stock_against = stock_dir == TrendDirection.DOWNTREND
             nifty_against = nifty_dir == TrendDirection.DOWNTREND
 
             if filter_mode == "STRICT":
-                # Reject if stock alone is in downtrend
                 if stock_against:
                     return False, (
-                        f"LONG rejected: stock {stock_trend.symbol} in DOWNTREND "
-                        f"(slope={stock_trend.price_slope:+.2f}%)"
+                        f"LONG rejected: stock {stock_trend.symbol} combined trend=DOWNTREND "
+                        f"(hist={stock_trend.trend.value}, slope={stock_trend.price_slope:+.2f}%)"
+                        f"{intraday_ctx}"
                     )
-                # Reject if Nifty is in downtrend AND stock is not clearly up
                 if nifty_against and stock_dir != TrendDirection.UPTREND:
                     return False, (
-                        f"LONG rejected: Nifty in DOWNTREND with stock only {stock_dir.value}"
+                        f"LONG rejected: Nifty combined=DOWNTREND with stock combined={stock_dir.value}"
+                        f"{intraday_ctx}"
                     )
             else:  # LENIENT
                 if stock_against and nifty_against:
                     return False, (
                         f"LONG rejected: both stock ({stock_dir.value}) "
-                        f"and Nifty ({nifty_dir.value}) in DOWNTREND"
+                        f"and Nifty ({nifty_dir.value}) combined in DOWNTREND"
+                        f"{intraday_ctx}"
                     )
 
             return True, (
-                f"LONG aligned: stock={stock_dir.value}, Nifty={nifty_dir.value}"
+                f"LONG aligned: stock={stock_dir.value} (hist={stock_trend.trend.value}), "
+                f"Nifty={nifty_dir.value} (hist={nifty_trend.trend.value})"
+                f"{intraday_ctx}"
             )
 
         elif signal_type == SignalType.SHORT:
@@ -486,26 +850,29 @@ class TrendDirectionService:
             nifty_against = nifty_dir == TrendDirection.UPTREND
 
             if filter_mode == "STRICT":
-                # Reject if stock alone is in uptrend
                 if stock_against:
                     return False, (
-                        f"SHORT rejected: stock {stock_trend.symbol} in UPTREND "
-                        f"(slope={stock_trend.price_slope:+.2f}%)"
+                        f"SHORT rejected: stock {stock_trend.symbol} combined trend=UPTREND "
+                        f"(hist={stock_trend.trend.value}, slope={stock_trend.price_slope:+.2f}%)"
+                        f"{intraday_ctx}"
                     )
-                # Reject if Nifty is in uptrend AND stock is not clearly down
                 if nifty_against and stock_dir != TrendDirection.DOWNTREND:
                     return False, (
-                        f"SHORT rejected: Nifty in UPTREND with stock only {stock_dir.value}"
+                        f"SHORT rejected: Nifty combined=UPTREND with stock combined={stock_dir.value}"
+                        f"{intraday_ctx}"
                     )
             else:  # LENIENT
                 if stock_against and nifty_against:
                     return False, (
                         f"SHORT rejected: both stock ({stock_dir.value}) "
-                        f"and Nifty ({nifty_dir.value}) in UPTREND"
+                        f"and Nifty ({nifty_dir.value}) combined in UPTREND"
+                        f"{intraday_ctx}"
                     )
 
             return True, (
-                f"SHORT aligned: stock={stock_dir.value}, Nifty={nifty_dir.value}"
+                f"SHORT aligned: stock={stock_dir.value} (hist={stock_trend.trend.value}), "
+                f"Nifty={nifty_dir.value} (hist={nifty_trend.trend.value})"
+                f"{intraday_ctx}"
             )
 
         # Unknown signal type – allow through
