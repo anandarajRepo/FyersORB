@@ -102,7 +102,7 @@ class LeverageFilterService:
                 return None
 
             # Request margin for 1 share (INTRADAY product type)
-            # The fyers_apiv3 SDK does not expose a generate_margin / span_margin
+            # The fyers_apiv3 SDK does not expose a generate_margin / span-margin
             # method, so we call the REST endpoint directly.
             auth_header = "{}:{}".format(
                 self.fyers_config.client_id, self.fyers_config.access_token
@@ -116,10 +116,10 @@ class LeverageFilterService:
                 "limitPrice": 0,
                 "stopPrice": 0,
             }
-            # Fyers API v3: span_margin expects orders wrapped in a "data" array
+            # Fyers API v3: span-margin expects orders wrapped in a "data" array
             payload = {"data": [order]}
             raw = requests.post(
-                f"{self.fyers_config.base_url}/span_margin",
+                f"{self.fyers_config.base_url}/span-margin",
                 json=payload,
                 headers={
                     "Authorization": auth_header,
@@ -137,7 +137,7 @@ class LeverageFilterService:
                     # the actual JSON payload.  Locate the first { or [ and parse from there.
                     text = raw.text or ""
                     logger.debug(
-                        f"Non-JSON prefix in span_margin response for {symbol}: {text[:120]!r}"
+                        f"Non-JSON prefix in span-margin response for {symbol}: {text[:120]!r}"
                     )
                     start = next((i for i, c in enumerate(text) if c in "{["), None)
                     if start is not None:
@@ -145,13 +145,13 @@ class LeverageFilterService:
                             response = json.loads(text[start:])
                         except json.JSONDecodeError as inner:
                             logger.error(
-                                f"Could not parse span_margin response for {symbol} "
+                                f"Could not parse span-margin response for {symbol} "
                                 f"(raw={text[:200]!r}): {inner}"
                             )
                             return None
                     else:
                         logger.error(
-                            f"No JSON object found in span_margin response for {symbol}: "
+                            f"No JSON object found in span-margin response for {symbol}: "
                             f"{text[:200]!r}"
                         )
                         return None
