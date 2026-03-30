@@ -30,7 +30,9 @@ from services.market_timing_service import MarketTimingService
 from services.momentum_service import MomentumScoringService
 from services.leverage_filter_service import LeverageFilterService
 from services.moneycontrol_service import MoneycontrolWatchlistService
-from services.trend_direction_service import TrendDirectionService, TrendAnalysis, TrendDirection
+from services.trend_direction_service import (
+    TrendDirectionService, TrendAnalysis, TrendDirection, IntradayTrendAnalysis
+)
 from strategy.order_manager import OrderManager
 
 logger = logging.getLogger(__name__)
@@ -98,6 +100,11 @@ class ORBStrategy:
         # Trend direction analysis (pre-market, cached per day)
         self.trend_analyses: Dict[str, TrendAnalysis] = {}   # symbol -> TrendAnalysis
         self.nifty_trend: Optional[TrendAnalysis] = None
+
+        # Intraday trend analysis (post-ORB, refreshed periodically)
+        self.intraday_trend_analyses: Dict[str, IntradayTrendAnalysis] = {}
+        self.intraday_nifty_trend: Optional[IntradayTrendAnalysis] = None
+        self.intraday_trend_done: bool = False
         self.trend_analysis_done: bool = False
 
         # ===== NEW: State tracking for breakout transitions =====
@@ -335,6 +342,43 @@ class ORBStrategy:
         except Exception as e:
             logger.error(f"Trend analysis failed: {e} - trend filter will be skipped")
             self.trend_analysis_done = True   # Don't block trading on analysis failure
+
+    def _run_intraday_trend_analysis(self):
+        """
+        Fetch and analyse intraday (5-min candle) trend for all momentum-filtered
+        symbols plus Nifty 50.  Called after the ORB period ends and then
+        periodically via _scan_for_breakouts so the combined trend stays current.
+        """
+        try:
+            if not self.strategy_config.enable_trend_filter:
+                return
+            if not self.strategy_config.enable_intraday_trend_analysis:
+                logger.debug("Intraday trend analysis disabled – skipping")
+                return
+
+            logger.info("Refreshing intraday trend analysis...")
+
+            symbols_to_analyse = (
+                self.momentum_filtered_symbols
+                if self.momentum_screening_done and self.momentum_filtered_symbols
+                else list(self.trading_symbols)
+            )
+
+            intraday_results = self.trend_service.analyze_all_intraday_trends(
+                symbols=symbols_to_analyse,
+                resolution=self.strategy_config.intraday_candle_resolution,
+                refresh_interval_seconds=self.strategy_config.intraday_trend_refresh_interval,
+            )
+
+            self.intraday_nifty_trend = intraday_results.get("NIFTY50")
+            self.intraday_trend_analyses = {
+                sym: v for sym, v in intraday_results.items() if sym != "NIFTY50"
+            }
+            self.intraday_trend_done = True
+
+        except Exception as e:
+            logger.error(f"Intraday trend analysis failed: {e}")
+            self.intraday_trend_done = True   # Don't block trading on failure
 
     def _on_live_data_update(self, symbol: str, live_quote: LiveQuote):
         """
@@ -639,6 +683,11 @@ class ORBStrategy:
                 self.orb_completed = True
                 self.opening_ranges = self.data_service.get_all_opening_ranges()
                 logger.info(f"ORB period completed - {len(self.opening_ranges)} ranges calculated")
+                # Kick off the first intraday trend refresh now that session data is available
+                self._run_intraday_trend_analysis()
+            else:
+                # Periodic intraday trend refresh (rate-limited inside the service)
+                self._run_intraday_trend_analysis()
 
             # Process only symbols with pending breakout transitions
             new_signals = []
@@ -696,6 +745,7 @@ class ORBStrategy:
                     continue
 
                 # TREND FILTER: Only trade in the direction of the prevailing trend
+                # Combines historical (daily) trend with intraday trend when available.
                 if self.strategy_config.enable_trend_filter and self.trend_analysis_done:
                     stock_trend = self.trend_service.get_symbol_trend(
                         symbol, self.strategy_config.trend_lookback_days
@@ -703,9 +753,27 @@ class ORBStrategy:
                     nifty_trend = self.nifty_trend
 
                     if stock_trend and nifty_trend:
+                        # Retrieve intraday trends (may be None if disabled or not yet ready)
+                        stock_intraday = (
+                            self.intraday_trend_analyses.get(symbol)
+                            if self.strategy_config.enable_intraday_trend_analysis
+                            and self.intraday_trend_done
+                            else None
+                        )
+                        nifty_intraday = (
+                            self.intraday_nifty_trend
+                            if self.strategy_config.enable_intraday_trend_analysis
+                            and self.intraday_trend_done
+                            else None
+                        )
+
                         aligned, reason = self.trend_service.is_signal_aligned_with_trend(
                             signal_type, stock_trend, nifty_trend,
-                            filter_mode=self.strategy_config.trend_filter_mode
+                            filter_mode=self.strategy_config.trend_filter_mode,
+                            stock_intraday=stock_intraday,
+                            nifty_intraday=nifty_intraday,
+                            historical_weight=self.strategy_config.historical_trend_weight,
+                            intraday_weight=self.strategy_config.intraday_trend_weight,
                         )
                         if not aligned:
                             logger.info(f"TREND FILTER blocked {symbol} ({signal_type.value}): {reason}")

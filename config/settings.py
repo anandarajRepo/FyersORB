@@ -91,6 +91,15 @@ class ORBStrategyConfig:
     trend_filter_mode: str = "STRICT"      # STRICT: reject if stock OR Nifty opposes signal
                                            # LENIENT: reject only when BOTH oppose signal
 
+    # Intraday trend analysis settings
+    # Fetches intraday candles (5-min by default) from market open to current time
+    # and runs a secondary trend check that is combined with the historical trend.
+    enable_intraday_trend_analysis: bool = True   # Enable intraday candle-based trend layer
+    intraday_candle_resolution: str = "5"         # Candle resolution: "1", "5", "15"
+    historical_trend_weight: float = 0.6          # Weight for historical (daily) trend score
+    intraday_trend_weight: float = 0.4            # Weight for intraday trend score (must sum to 1.0)
+    intraday_trend_refresh_interval: int = 300    # Seconds between intraday trend refreshes (5 min)
+
 
 @dataclass
 class TradingConfig:
