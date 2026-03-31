@@ -31,6 +31,9 @@ class FyersConfig:
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
     base_url: str = "https://api-t1.fyers.in/api/v3"
+    # SEBI compliance (effective April 1, 2026)
+    static_ip: Optional[str] = None  # Whitelisted static IP registered with App ID
+    mpp_protection_pct: float = 1.0  # MPP buffer %: limit price = LTP ± this % (replaces market orders)
 
 
 @dataclass

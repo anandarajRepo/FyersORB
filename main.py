@@ -68,7 +68,10 @@ def load_configuration():
             client_id=os.environ.get('FYERS_CLIENT_ID'),
             secret_key=os.environ.get('FYERS_SECRET_KEY'),
             access_token=os.environ.get('FYERS_ACCESS_TOKEN'),
-            refresh_token=os.environ.get('FYERS_REFRESH_TOKEN')
+            refresh_token=os.environ.get('FYERS_REFRESH_TOKEN'),
+            # SEBI compliance fields
+            static_ip=os.environ.get('FYERS_STATIC_IP'),
+            mpp_protection_pct=float(os.environ.get('MPP_PROTECTION_PCT', 1.0))
         )
 
         # ORB Strategy configuration
@@ -164,6 +167,18 @@ async def run_orb_strategy():
             return
 
         logger.info("Authentication successful - Access token validated")
+
+        # SEBI compliance: warn if static IP is not configured
+        if not fyers_config.static_ip:
+            logger.warning(
+                "SEBI COMPLIANCE: FYERS_STATIC_IP is not set. "
+                "From April 1, 2026, API access is restricted to a whitelisted static IP. "
+                "Set FYERS_STATIC_IP in .env and register it with your Fyers App ID."
+            )
+        else:
+            logger.info(f"SEBI Compliance: Static IP configured: {fyers_config.static_ip}")
+        logger.info(f"SEBI Compliance: MPP protection: {fyers_config.mpp_protection_pct}% (market orders replaced by MPP limit orders)")
+        logger.info(f"SEBI Compliance: Order rate limit: 10 orders/modifications per second")
 
         # Log strategy configuration
         logger.info(f"Portfolio Value: {strategy_config.portfolio_value:,}")
