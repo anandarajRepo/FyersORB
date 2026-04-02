@@ -20,20 +20,17 @@ logger = logging.getLogger(__name__)
 
 
 class FyersAuthManager:
-    """Enhanced Fyers authentication manager with refresh token and PIN support"""
+    """Fyers authentication manager — SEBI-compliant daily 2FA (no refresh tokens)"""
 
     def __init__(self):
         self.client_id = os.environ.get('FYERS_CLIENT_ID')
         self.secret_key = os.environ.get('FYERS_SECRET_KEY')
         self.redirect_uri = os.environ.get('FYERS_REDIRECT_URI', "https://trade.fyers.in/api-login/redirect-to-app")
-        self.refresh_token = os.environ.get('FYERS_REFRESH_TOKEN')
         self.access_token = os.environ.get('FYERS_ACCESS_TOKEN')
-        self.pin = os.environ.get('FYERS_PIN')
 
         # API endpoints
         self.auth_url = "https://api-t1.fyers.in/api/v3/generate-authcode"
         self.token_url = "https://api-t1.fyers.in/api/v3/validate-authcode"
-        self.refresh_url = "https://api-t1.fyers.in/api/v3/validate-refresh-token"
         self.profile_url = "https://api-t1.fyers.in/api/v3/profile"
 
     def save_to_env(self, key: str, value: str) -> bool:
@@ -278,10 +275,10 @@ class FyersAuthManager:
             logger.error(f"Error generating auth URL: {e}")
             return None
 
-    def get_tokens_from_auth_code(self, auth_code: str) -> Tuple[Optional[str], Optional[str]]:
-        """Get both access and refresh tokens from auth code"""
+    def get_access_token_from_auth_code(self, auth_code: str) -> Optional[str]:
+        """Exchange auth code for access token (SEBI: no refresh tokens issued)"""
         try:
-            logger.info("Exchanging auth code for tokens...")
+            logger.info("Exchanging auth code for access token...")
 
             headers = {"Content-Type": "application/json"}
 
@@ -296,79 +293,20 @@ class FyersAuthManager:
 
             if response.status_code == 200 and response_data.get('s') == 'ok':
                 access_token = response_data.get('access_token')
-                refresh_token = response_data.get('refresh_token')
-
-                logger.info("Successfully obtained tokens from auth code")
-                return access_token, refresh_token
+                logger.info("Successfully obtained access token from auth code")
+                return access_token
             else:
                 error_msg = response_data.get('message', 'Unknown error')
                 error_code = response_data.get('code', 'Unknown')
                 logger.error(f"Token exchange failed: {error_msg} (Code: {error_code})")
-                return None, None
+                return None
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error during token exchange: {e}")
-            return None, None
+            return None
         except Exception as e:
             logger.error(f"Unexpected error during token exchange: {e}")
-            return None, None
-
-    def generate_access_token_with_refresh(self, refresh_token: str) -> Tuple[Optional[str], Optional[str]]:
-        """Generate new access token using refresh token with PIN verification"""
-        try:
-            logger.info("Refreshing access token using refresh token...")
-
-            # Get PIN (from env or user input)
-            pin = self.get_or_request_pin()
-
-            headers = {"Content-Type": "application/json"}
-
-            data = {
-                "grant_type": "refresh_token",
-                "appIdHash": self.get_app_id_hash(),
-                "refresh_token": refresh_token,
-                "pin": pin
-            }
-
-            response = requests.post(self.refresh_url, headers=headers, json=data, timeout=30)
-            response_data = response.json()
-
-            if response.status_code == 200 and response_data.get('s') == 'ok':
-                new_access_token = response_data.get('access_token')
-                new_refresh_token = response_data.get('refresh_token')
-
-                logger.info("Successfully refreshed access token")
-                return new_access_token, new_refresh_token
-            else:
-                error_msg = response_data.get('message', 'Unknown error')
-                error_code = response_data.get('code', 'Unknown')
-
-                # Handle specific PIN-related errors
-                if 'pin' in error_msg.lower() or 'invalid pin' in error_msg.lower():
-                    logger.error(f"PIN verification failed: {error_msg}")
-                    print(f"\n PIN verification failed: {error_msg}")
-                    print("The saved PIN might be incorrect.")
-
-                    # Clear the saved PIN and retry once
-                    self.pin = None
-                    if 'FYERS_PIN' in os.environ:
-                        del os.environ['FYERS_PIN']
-
-                    retry = input("Would you like to retry with a different PIN? (y/n): ").strip().lower()
-                    if retry == 'y':
-                        logger.info("Retrying token refresh with new PIN...")
-                        return self.generate_access_token_with_refresh(refresh_token)
-                else:
-                    logger.error(f"Token refresh failed: {error_msg} (Code: {error_code})")
-
-                return None, None
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error while refreshing token: {e}")
-            return None, None
-        except Exception as e:
-            logger.error(f"Unexpected error while refreshing token: {e}")
-            return None, None
+            return None
 
     def is_token_valid(self, access_token: str) -> bool:
         """Check if access token is still valid"""
@@ -395,8 +333,8 @@ class FyersAuthManager:
     def get_valid_access_token(self) -> Optional[str]:
         """Get a valid access token, enforcing SEBI daily 2FA requirement.
 
-        Per SEBI guidelines (effective April 1, 2026): continuous login sessions
-        are discontinued. Full re-authentication is required each trading day.
+        Per SEBI guidelines (effective April 1, 2026): refresh tokens are
+        discontinued. Full re-authentication via 2FA is required each trading day.
         """
         try:
             today = datetime.date.today().isoformat()
@@ -411,7 +349,8 @@ class FyersAuthManager:
                 print(f"\n{'=' * 60}")
                 print("SEBI DAILY 2FA AUTHENTICATION REQUIRED")
                 print("=" * 60)
-                print(f"Per SEBI guidelines, daily authentication is mandatory.")
+                print("Per SEBI guidelines (effective April 1, 2026), daily 2FA is mandatory.")
+                print("Refresh tokens are no longer supported.")
                 print(f"Last authenticated: {last_auth_date or 'never'}")
                 access_token = self.setup_full_authentication()
                 if access_token:
@@ -424,28 +363,8 @@ class FyersAuthManager:
                 logger.info("Current access token is still valid")
                 return self.access_token
 
-            logger.info("Access token is invalid or expired")
-
-            # Same-day intraday refresh is allowed (token expired mid-session)
-            if self.refresh_token:
-                logger.info("Attempting intraday token refresh...")
-                new_access_token, new_refresh_token = self.generate_access_token_with_refresh(self.refresh_token)
-
-                if new_access_token:
-                    logger.info("Intraday token refresh successful")
-                    self.save_to_env('FYERS_ACCESS_TOKEN', new_access_token)
-                    self.access_token = new_access_token
-
-                    if new_refresh_token:
-                        self.save_to_env('FYERS_REFRESH_TOKEN', new_refresh_token)
-                        self.refresh_token = new_refresh_token
-
-                    return new_access_token
-                else:
-                    logger.warning("Intraday token refresh failed")
-
-            # Intraday refresh failed — fall back to full re-authentication
-            logger.info("Full re-authentication required")
+            # Token expired mid-session — full re-auth required (no refresh tokens per SEBI)
+            logger.info("Access token is invalid or expired. Full re-authentication required (SEBI: no refresh tokens).")
             access_token = self.setup_full_authentication()
             if access_token:
                 self.save_to_env('FYERS_LAST_AUTH_DATE', today)
@@ -456,21 +375,17 @@ class FyersAuthManager:
             return None
 
     def setup_full_authentication(self) -> Optional[str]:
-        """Complete authentication flow to get new tokens"""
+        """Complete daily 2FA authentication flow (SEBI-compliant, no refresh tokens)"""
         try:
             print("\n" + "=" * 70)
-            print("FYERS API FULL AUTHENTICATION SETUP")
+            print("FYERS API DAILY 2FA AUTHENTICATION (SEBI-COMPLIANT)")
             print("=" * 70)
+            print("Refresh tokens are disabled per SEBI regulations (effective April 1, 2026).")
+            print("You must complete this 2FA authentication every trading day.")
 
             if not all([self.client_id, self.secret_key]):
                 print(" Missing CLIENT_ID or SECRET_KEY in environment variables")
                 return None
-
-            # PIN setup reminder
-            if not self.pin:
-                print("\nTrading PIN Setup:")
-                print("Your trading PIN will be needed for future token refreshes.")
-                print("We'll ask for it during the authentication process.")
 
             # Generate auth URL
             auth_url = self.generate_auth_url()
@@ -481,9 +396,8 @@ class FyersAuthManager:
             print(f"\n AUTHENTICATION STEPS:")
             print(f"1. Open this URL in your web browser:")
             print(f"   {auth_url}")
-            print(f"\n2. Log in to your Fyers account")
-            print(f"3. Complete the authorization process")
-            print(f"4. Copy the authorization code from the redirect URL")
+            print(f"\n2. Log in to your Fyers account and complete 2FA")
+            print(f"3. Copy the authorization code from the redirect URL")
             print(f"\n The redirect URL will look like:")
             print(f"   {self.redirect_uri}?code=YOUR_AUTH_CODE&state=sample_state")
 
@@ -495,38 +409,20 @@ class FyersAuthManager:
                 print(" No authorization code provided")
                 return None
 
-            # Get both access and refresh tokens
-            print(" Exchanging authorization code for tokens...")
-            access_token, refresh_token = self.get_tokens_from_auth_code(auth_code)
+            # Exchange auth code for access token
+            print(" Exchanging authorization code for access token...")
+            access_token = self.get_access_token_from_auth_code(auth_code)
 
             if not access_token:
                 print(" Failed to obtain access token")
                 return None
 
-            print(" Tokens obtained successfully!")
+            print(" Access token obtained successfully!")
 
-            # Set up PIN for future token refreshes
-            try:
-                print("\n Setting up PIN for automatic token refresh...")
-                pin = self.get_or_request_pin()
-                if pin:
-                    print(" PIN configured for automatic token refresh")
-            except Exception as e:
-                print(f"  PIN setup skipped: {e}")
-                print("You can set it up later with: python main.py update-pin")
-
-            # Save all tokens to .env
-            print(f"\n Saving authentication data...")
-
-            saved_items = []
+            # Save access token to .env
+            print(f"\n Saving access token...")
             if self.save_to_env('FYERS_ACCESS_TOKEN', access_token):
-                saved_items.append("Access Token")
-
-            if refresh_token and self.save_to_env('FYERS_REFRESH_TOKEN', refresh_token):
-                saved_items.append("Refresh Token")
-
-            if saved_items:
-                print(f" Saved: {', '.join(saved_items)}")
+                print(f" Saved: Access Token")
 
             # Verify the setup
             if self.is_token_valid(access_token):
@@ -582,9 +478,9 @@ class FyersAuthManager:
 
 # Convenience functions for main.py
 def setup_auth_only():
-    """Enhanced authentication setup with refresh token and PIN support"""
+    """SEBI-compliant daily 2FA authentication setup (no refresh tokens)"""
     print("=" * 80)
-    print("ENHANCED FYERS API AUTHENTICATION SETUP")
+    print("FYERS API DAILY 2FA AUTHENTICATION SETUP (SEBI-COMPLIANT)")
     print("=" * 80)
 
     try:
@@ -655,8 +551,8 @@ def setup_auth_only():
         access_token = auth_manager.setup_full_authentication()
 
         if access_token:
-            print("\nEnhanced authentication setup completed!")
-            print("✓ Refresh token and PIN have been configured for automatic renewal")
+            print("\nSEBI-compliant daily 2FA authentication setup completed!")
+            print("Note: Refresh tokens are disabled per SEBI regulations.")
             return True
         else:
             print("\nAuthentication setup failed!")
@@ -672,11 +568,11 @@ def setup_auth_only():
 
 
 def authenticate_fyers(config_dict: dict) -> bool:
-    """Handle Fyers authentication with refresh token and PIN support"""
+    """Handle Fyers authentication — SEBI daily 2FA (no refresh tokens)"""
     try:
         auth_manager = FyersAuthManager()
 
-        # Get valid access token (will auto-refresh if needed)
+        # Get valid access token (SEBI: full re-auth required each trading day)
         access_token = auth_manager.get_valid_access_token()
 
         if access_token:
@@ -761,7 +657,6 @@ def update_pin_only():
         if success:
             print("\n PIN update completed successfully!")
             print("Your new PIN has been saved to the .env file")
-            print("The new PIN will be used for automatic token refresh")
         else:
             print("\nPIN update failed. Please try again.")
 
@@ -861,8 +756,7 @@ if __name__ == "__main__":
         print(f"Client ID configured: {'Yes' if auth_manager.client_id else 'No'}")
         print(f"Secret Key configured: {'Yes' if auth_manager.secret_key else 'No'}")
         print(f"Access Token configured: {'Yes' if auth_manager.access_token else 'No'}")
-        print(f"Refresh Token configured: {'Yes' if auth_manager.refresh_token else 'No'}")
-        print(f"PIN configured: {'Yes' if auth_manager.pin else 'No'}")
+        print(f"Note: Refresh tokens disabled per SEBI regulations (April 1, 2026)")
 
         # Test .env file operations
         test_key = "TEST_KEY_" + str(int(time.time()))
