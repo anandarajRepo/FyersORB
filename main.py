@@ -68,8 +68,7 @@ def load_configuration():
             client_id=os.environ.get('FYERS_CLIENT_ID'),
             secret_key=os.environ.get('FYERS_SECRET_KEY'),
             access_token=os.environ.get('FYERS_ACCESS_TOKEN'),
-            refresh_token=os.environ.get('FYERS_REFRESH_TOKEN'),
-            # SEBI compliance fields
+            # SEBI compliance fields (refresh_token removed — daily 2FA required)
             static_ip=os.environ.get('FYERS_STATIC_IP'),
             mpp_protection_pct=float(os.environ.get('MPP_PROTECTION_PCT', 1.0))
         )
@@ -405,9 +404,6 @@ def show_authentication_status():
     client_id = os.environ.get('FYERS_CLIENT_ID')
     secret_key = os.environ.get('FYERS_SECRET_KEY')
     access_token = os.environ.get('FYERS_ACCESS_TOKEN')
-    refresh_token = os.environ.get('FYERS_REFRESH_TOKEN')
-    pin = os.environ.get('FYERS_PIN')
-
     print(f" Credential Status:")
     print(f"  Client ID: {' Set' if client_id else '❌ Missing'}")
     if client_id:
@@ -418,8 +414,7 @@ def show_authentication_status():
     if access_token:
         print(f"    Preview: {access_token[:20]}...")
 
-    print(f"  Refresh Token: {' Set' if refresh_token else '❌ Missing'}")
-    print(f"  Trading PIN: {' Set' if pin else '❌ Missing'}")
+    print(f"  Note: Refresh tokens disabled (SEBI daily 2FA required)")
 
     # Test token validity if available
     if access_token and client_id:
@@ -459,13 +454,10 @@ def show_authentication_status():
     # Recommendations
     print(f"\n Recommendations:")
     if not access_token:
-        print(f"  ️  No access token found. Run setup: python main.py auth")
-    elif not refresh_token:
-        print(f"  ️  No refresh token. Consider re-running setup for auto-refresh")
-    elif not pin:
-        print(f"  ️  No trading PIN. Set PIN for automatic token refresh")
+        print(f"  ️  No access token found. Run daily 2FA setup: python main.py auth")
     else:
         print(f"   Authentication setup appears complete!")
+        print(f"   Remember: Daily 2FA is required each trading day (SEBI)")
         print(f"   Ready to run strategy: python main.py run")
 
 
@@ -604,11 +596,7 @@ def validate_configuration():
         else:
             print("   Access Token: Configured")
 
-        if not fyers_config.refresh_token:
-            warnings.append("FYERS_REFRESH_TOKEN is missing (consider re-authenticating)")
-            print("   Refresh Token: Missing")
-        else:
-            print("   Refresh Token: Configured")
+        print("   Refresh Token: Disabled (SEBI daily 2FA — re-authenticate each trading day)")
 
         # Check strategy configuration
         print(f"\n Portfolio & Risk Configuration:")
