@@ -27,6 +27,7 @@ class FyersAuthManager:
         self.secret_key = os.environ.get('FYERS_SECRET_KEY')
         self.redirect_uri = os.environ.get('FYERS_REDIRECT_URI', "https://trade.fyers.in/api-login/redirect-to-app")
         self.access_token = os.environ.get('FYERS_ACCESS_TOKEN')
+        self.pin = os.environ.get('FYERS_PIN')
 
         # API endpoints
         self.auth_url = "https://api-t1.fyers.in/api/v3/generate-authcode"
