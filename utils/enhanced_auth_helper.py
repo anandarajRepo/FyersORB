@@ -37,7 +37,9 @@ class FyersAuthManager:
     def save_to_env(self, key: str, value: str) -> bool:
         """Save or update environment variable in .env file"""
         try:
-            env_file = '.env'
+            # Use absolute path so the correct .env is found regardless of CWD
+            # (e.g. when invoked from a cron job that cd's to a different directory)
+            env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
 
             # Read existing .env file
             env_vars = {}
@@ -341,8 +343,18 @@ class FyersAuthManager:
             today = datetime.date.today().isoformat()
             last_auth_date = os.environ.get('FYERS_LAST_AUTH_DATE', '')
 
-            # SEBI daily 2FA: if today's auth hasn't been completed, force full re-auth
+            # SEBI daily 2FA: if today's auth hasn't been completed, check first whether
+            # an existing token (e.g. manually placed in .env before batch run) is valid.
+            # This avoids forcing interactive re-auth when a good token is already present.
             if last_auth_date != today:
+                if self.access_token and self.is_token_valid(self.access_token):
+                    logger.info(
+                        f"Existing access token is valid. Updating last auth date to {today} "
+                        f"(was '{last_auth_date or 'never'}')."
+                    )
+                    self.save_to_env('FYERS_LAST_AUTH_DATE', today)
+                    return self.access_token
+
                 logger.info(
                     f"SEBI daily 2FA required: last auth date was '{last_auth_date or 'never'}', "
                     f"today is {today}. Initiating full re-authentication."
