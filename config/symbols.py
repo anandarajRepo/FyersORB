@@ -78,6 +78,27 @@ class ORBSymbolManager:
             "Eicher Motors": "NSE:EICHERMOT-EQ",
             "TVS Motor Company": "NSE:TVSMOTOR-EQ",
 
+            # Jewellery Retail
+            "TITAN": "NSE:TITAN-EQ",
+            "KALYANKJIL": "NSE:KALYANKJIL-EQ",
+            "PCJEWELLER": "NSE:PCJEWELLER-EQ",
+            "PNGBL": "NSE:PNGBL-EQ",
+            "THANGAMAYL": "NSE:THANGAMAYL-EQ",
+            "SENCO": "NSE:SENCO-EQ",
+            "RJIL": "NSE:RJIL-EQ",
+            "GOLDIAM": "NSE:GOLDIAM-EQ",
+            "DIVHJL": "NSE:DIVHJL-EQ",  # Divine Hira Jewellers
+            "ZODIACJL": "NSE:ZODIACJL-EQ",  # Zodiac‑JRD‑MKJ (listed jeweller)
+            "NARBADAG": "NSE:NARBADAG-EQ",  # Narbada Gems & Jewellery
+            "MOKSH": "NSE:MOKSH-EQ",  # Moksh Ornaments
+            "SWARN": "NSE:SWARN-EQ", # Swarnsarita Jewels India
+
+            # Jewellery Retail
+            "MUTHOOTFIN": "NSE:MUTHOOTFIN-EQ",      # Muthoot Finance – large gold‑loan NBFC
+            "MANAPPURAM": "NSE:MANAPPURAM-EQ",      # Manappuram Finance – big gold‑loan NBFC
+            "KARURFIN": "NSE:KARURFIN-EQ",        # Karur Vysya Bank – has gold‑loan books
+            "KTKBANK": "NSE:KTKBANK-EQ",          # KTK Bank – active in gold‑loan segment
+
             # IPO Stocks
             "VIKRAMSOLR": "NSE:VIKRAMSOLR-EQ",
             "ATLANTAELE": "NSE:ATLANTAELE-EQ",
