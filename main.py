@@ -385,6 +385,13 @@ def show_strategy_help():
     print("  Monthly Target: 15-25% portfolio growth (potentially higher)")
     print("  Max Drawdown: <5% with proper risk management")
 
+    print("\n AUTHENTICATION:")
+    print("  • Browser-based authentication with automatic token generation")
+    print("  • Simply run: python main.py auth")
+    print("  • Browser opens automatically - enter phone number, OTP, PIN")
+    print("  • Token automatically captured and saved to .env")
+    print("  • No manual copy-paste of authorization codes needed")
+
     print("\n️  IMPORTANT NOTES:")
     print("  • Start with paper trading or small amounts")
     print("  • Monitor closely during initial weeks")
@@ -398,6 +405,8 @@ def show_authentication_status():
     """Show detailed authentication status with enhanced information"""
     print("\n" + "=" * 60)
     print("FYERS API AUTHENTICATION STATUS")
+    print("=" * 60)
+    print("📱 Browser-based authentication enabled (auto-opens browser)")
     print("=" * 60)
 
     # Check current credentials
@@ -446,6 +455,7 @@ def show_authentication_status():
 
     print(f"\n🔧 Available Commands:")
     print(f"  Setup Authentication: python main.py auth")
+    print(f"    (Browser opens automatically for easy 2FA authentication)")
     print(f"  Test Authentication: python main.py test-auth")
     print(f"  Update Trading PIN: python main.py update-pin")
     print(f"  Test WebSocket: python main.py test")

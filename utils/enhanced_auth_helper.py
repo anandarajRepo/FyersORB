@@ -3,6 +3,7 @@
 """
 Enhanced Fyers Authentication Helper for ORB Trading Strategy
 Provides comprehensive authentication with auto-refresh, PIN support, and error handling
+Includes browser automation and automatic redirect URL capture
 """
 
 import hashlib
@@ -14,9 +15,65 @@ import getpass
 import sys
 import time
 import datetime
+import webbrowser
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 from typing import Optional, Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+
+class AuthCodeRedirectHandler(BaseHTTPRequestHandler):
+    """Handles the OAuth redirect and captures the authorization code"""
+
+    auth_code = None
+    redirect_received = threading.Event()
+
+    def do_GET(self):
+        """Handle the redirect callback"""
+        parsed_url = urlparse(self.path)
+        query_params = parse_qs(parsed_url.query)
+
+        # Extract auth code from redirect
+        if 'code' in query_params:
+            AuthCodeRedirectHandler.auth_code = query_params['code'][0]
+            AuthCodeRedirectHandler.redirect_received.set()
+
+            # Send success response to browser
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            success_html = """
+            <html>
+            <head><title>Authentication Successful</title></head>
+            <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <h1 style="color: green;">✓ Authentication Successful</h1>
+                <p>Authorization code received. You can close this window and return to the terminal.</p>
+                <p style="color: #666;">The trading strategy will now proceed with token generation.</p>
+            </body>
+            </html>
+            """
+            self.wfile.write(success_html.encode())
+        else:
+            # Auth code not found
+            self.send_response(400)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            error_html = """
+            <html>
+            <head><title>Authentication Failed</title></head>
+            <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+                <h1 style="color: red;">✗ Authentication Failed</h1>
+                <p>No authorization code received. Please try again.</p>
+            </body>
+            </html>
+            """
+            self.wfile.write(error_html.encode())
+
+    def log_message(self, format, *args):
+        """Suppress default logging of HTTP requests"""
+        pass
 
 
 class FyersAuthManager:
@@ -387,6 +444,114 @@ class FyersAuthManager:
             logger.error(f"Error getting valid access token: {e}")
             return None
 
+    def setup_browser_authentication(self, port: int = 5000) -> Optional[str]:
+        """Complete daily 2FA authentication via auto-opened browser with redirect capture"""
+        try:
+            print("\n" + "=" * 70)
+            print("FYERS API DAILY 2FA AUTHENTICATION (BROWSER-BASED)")
+            print("=" * 70)
+            print("A browser window will open automatically for authentication.")
+            print("Refresh tokens are disabled per SEBI regulations (effective April 1, 2026).")
+
+            if not all([self.client_id, self.secret_key]):
+                print(" Missing CLIENT_ID or SECRET_KEY in environment variables")
+                return None
+
+            # Update redirect URI to use localhost
+            self.redirect_uri = f"http://localhost:{port}/callback"
+
+            # Setup local server to capture redirect
+            print(f"\n Starting local authorization server on port {port}...")
+            try:
+                server = HTTPServer(('localhost', port), AuthCodeRedirectHandler)
+                server_thread = threading.Thread(target=server.handle_request, daemon=True)
+                server_thread.start()
+                time.sleep(0.5)  # Give server time to start
+            except OSError as e:
+                print(f"️  Could not start local server on port {port}: {e}")
+                print(" Falling back to manual auth code entry...")
+                return self.setup_full_authentication()
+
+            # Generate auth URL with localhost redirect
+            print(f" Opening browser for authentication...")
+            auth_url = self.generate_auth_url()
+            if not auth_url:
+                print(" Failed to generate authentication URL")
+                server.server_close()
+                return None
+
+            print(f" Auth URL: {auth_url}")
+
+            # Open browser automatically
+            browser_opened = webbrowser.open(auth_url)
+            if browser_opened:
+                print(" Browser opened successfully")
+            else:
+                print("⚠  Could not open browser automatically")
+                print(" Please open this URL manually in your browser:")
+                print(f" {auth_url}")
+
+            print(f"\n Waiting for authentication...")
+            print(f"1. Enter your phone number when prompted")
+            print(f"2. Verify the OTP sent to your phone")
+            print(f"3. Enter your trading PIN")
+            print(f"4. The authorization code will be captured automatically")
+
+            # Wait for redirect callback with timeout
+            timeout = 300  # 5 minutes
+            if AuthCodeRedirectHandler.redirect_received.wait(timeout):
+                auth_code = AuthCodeRedirectHandler.auth_code
+                print(f"\n ✓ Authorization code received!")
+                server.server_close()
+            else:
+                print(f"\n ✗ Timeout waiting for authorization code")
+                server.server_close()
+                return None
+
+            # Exchange auth code for access token
+            print(f" Exchanging authorization code for access token...")
+            access_token = self.get_access_token_from_auth_code(auth_code)
+
+            if not access_token:
+                print(" Failed to obtain access token")
+                return None
+
+            print(" ✓ Access token obtained successfully!")
+
+            # Save access token to .env
+            print(f"\n Saving access token...")
+            if self.save_to_env('FYERS_ACCESS_TOKEN', access_token):
+                print(f" ✓ Access token saved to .env file")
+
+            # Verify the setup
+            if self.is_token_valid(access_token):
+                print(f"\n AUTHENTICATION SUCCESSFUL!")
+                print(f" ✓ Access token is valid and ready to use")
+
+                # Try to get profile info
+                try:
+                    headers = {'Authorization': f"{self.client_id}:{access_token}"}
+                    response = requests.get(self.profile_url, headers=headers, timeout=10)
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result.get('s') == 'ok':
+                            profile_data = result.get('data', {})
+                            print(f" Account: {profile_data.get('name', 'Unknown')}")
+                            print(f" Email: {profile_data.get('email', 'Unknown')}")
+                except:
+                    pass  # Profile fetch is optional
+
+                return access_token
+            else:
+                print(f" Token validation failed after setup")
+                return None
+
+        except Exception as e:
+            print(f" Browser authentication setup failed: {e}")
+            logger.exception("Browser authentication setup error")
+            return None
+
     def setup_full_authentication(self) -> Optional[str]:
         """Complete daily 2FA authentication flow (SEBI-compliant, no refresh tokens)"""
         try:
@@ -491,7 +656,7 @@ class FyersAuthManager:
 
 # Convenience functions for main.py
 def setup_auth_only():
-    """SEBI-compliant daily 2FA authentication setup (no refresh tokens)"""
+    """SEBI-compliant daily 2FA authentication setup with browser automation"""
     print("=" * 80)
     print("FYERS API DAILY 2FA AUTHENTICATION SETUP (SEBI-COMPLIANT)")
     print("=" * 80)
@@ -505,7 +670,13 @@ def setup_auth_only():
             print("Found existing API credentials in environment")
             print("This will perform FULL re-authentication (not refresh)")
 
-            confirm = input("\nProceed with full re-authentication? (y/n) [y]: ").strip().lower()
+            print("\nAuthentication Method:")
+            print("1. Browser-based (recommended) - Browser opens automatically")
+            print("2. Manual code entry - Copy/paste authorization code")
+
+            choice = input("\nSelect authentication method (1/2) [default: 1]: ").strip()
+
+            confirm = input("Proceed with full re-authentication? (y/n) [y]: ").strip().lower()
             if confirm == 'n':
                 print("Authentication setup cancelled")
                 return False
@@ -514,9 +685,13 @@ def setup_auth_only():
             auth_manager.client_id = existing_client_id
             auth_manager.secret_key = existing_secret_key
 
-            # Skip refresh attempt - go directly to full authentication
-            print("\nStarting full authentication flow...")
-            access_token = auth_manager.setup_full_authentication()
+            # Use browser-based auth by default
+            if choice == '2':
+                print("\nStarting manual authentication flow...")
+                access_token = auth_manager.setup_full_authentication()
+            else:
+                print("\nStarting browser-based authentication flow...")
+                access_token = auth_manager.setup_browser_authentication()
 
             if access_token:
                 print("\nAuthentication successful!")
@@ -560,8 +735,20 @@ def setup_auth_only():
         auth_manager.secret_key = secret_key
         auth_manager.redirect_uri = redirect_uri
 
-        # Perform full authentication
-        access_token = auth_manager.setup_full_authentication()
+        # Choose authentication method
+        print("\nAuthentication Method:")
+        print("1. Browser-based (recommended) - Browser opens automatically")
+        print("2. Manual code entry - Copy/paste authorization code")
+
+        choice = input("Select authentication method (1/2) [default: 1]: ").strip()
+
+        # Perform authentication
+        if choice == '2':
+            print("\nPerforming manual authentication...")
+            access_token = auth_manager.setup_full_authentication()
+        else:
+            print("\nPerforming browser-based authentication...")
+            access_token = auth_manager.setup_browser_authentication()
 
         if access_token:
             print("\nSEBI-compliant daily 2FA authentication setup completed!")
