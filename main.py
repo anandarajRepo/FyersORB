@@ -386,11 +386,10 @@ def show_strategy_help():
     print("  Max Drawdown: <5% with proper risk management")
 
     print("\n AUTHENTICATION:")
-    print("  • Browser-based authentication with automatic token generation")
+    print("  • CLI-only authentication - no browser required")
     print("  • Simply run: python main.py auth")
-    print("  • Browser opens automatically - enter phone number, OTP, PIN")
+    print("  • Enter Fyers Client ID, OTP, and trading PIN in the terminal")
     print("  • Token automatically captured and saved to .env")
-    print("  • No manual copy-paste of authorization codes needed")
 
     print("\n️  IMPORTANT NOTES:")
     print("  • Start with paper trading or small amounts")
@@ -406,7 +405,7 @@ def show_authentication_status():
     print("\n" + "=" * 60)
     print("FYERS API AUTHENTICATION STATUS")
     print("=" * 60)
-    print("📱 Browser-based authentication enabled (auto-opens browser)")
+    print(" CLI-only authentication (no browser required)")
     print("=" * 60)
 
     # Check current credentials
@@ -455,7 +454,7 @@ def show_authentication_status():
 
     print(f"\n🔧 Available Commands:")
     print(f"  Setup Authentication: python main.py auth")
-    print(f"    (Browser opens automatically for easy 2FA authentication)")
+    print(f"    (CLI-only 2FA authentication — no browser required)")
     print(f"  Test Authentication: python main.py test-auth")
     print(f"  Update Trading PIN: python main.py update-pin")
     print(f"  Test WebSocket: python main.py test")
