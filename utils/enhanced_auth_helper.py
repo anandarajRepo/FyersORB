@@ -528,23 +528,38 @@ class FyersAuthManager:
             print(" Your Fyers Client ID is your login username (e.g. 'XK00123').")
             print(" It is the same ID you use at https://login.fyers.in/.")
             default_fy_id = self.fy_id or ''
-            default_hint = f" [{default_fy_id}]" if default_fy_id else ""
-            while True:
-                fy_id = input(f" Fyers Client ID{default_hint}: ").strip() or default_fy_id
-                if fy_id:
-                    break
-                print(" Cannot be empty. Please enter your Fyers Client ID.")
 
             # Fyers login flow is OTP + PIN based; no password is required.
-            # OTP - Trigger sending
+            # OTP - Trigger sending. Retry on failure so a typo'd Client ID
+            # doesn't force the user to restart the whole flow.
             print(f"\n STEP 3: SEND & VERIFY OTP")
             print("=" * 70)
-            print("Sending OTP to your registered phone number...")
 
-            request_id = self._send_otp(fy_id)
-            if not request_id:
-                print(" Failed to send OTP. Please check your Fyers Client ID and try again.")
-                return None
+            max_send_attempts = 3
+            request_id = None
+            fy_id = None
+            for attempt in range(max_send_attempts):
+                default_hint = f" [{default_fy_id}]" if default_fy_id else ""
+                while True:
+                    candidate = input(f" Fyers Client ID{default_hint}: ").strip() or default_fy_id
+                    if candidate:
+                        break
+                    print(" Cannot be empty. Please enter your Fyers Client ID.")
+
+                print("Sending OTP to your registered phone number...")
+                request_id = self._send_otp(candidate)
+                if request_id:
+                    fy_id = candidate
+                    break
+
+                remaining = max_send_attempts - attempt - 1
+                if remaining > 0:
+                    print(f" Failed to send OTP. {remaining} attempt(s) left — try a different Client ID.")
+                    # Don't auto-fill the bad value as the next default
+                    default_fy_id = ''
+                else:
+                    print(" Failed to send OTP after multiple attempts. Please check your Fyers Client ID and try again.")
+                    return None
 
             # Save fy_id for future runs now that we know it's valid
             if fy_id != self.fy_id:
@@ -677,12 +692,15 @@ class FyersAuthManager:
 
     def _post_login_api(self, url: str, payload: dict, step: str) -> Optional[dict]:
         """POST to a Fyers login-flow endpoint and return the parsed JSON body, or None on failure"""
-        # Fyers vagator service rejects requests without a browser-like User-Agent
-        # with a generic "invalid request" (code -1025), so send one explicitly.
+        # The vagator service is normally called from login.fyers.in. Without a
+        # browser-like User-Agent and matching Origin/Referer, it returns the
+        # generic "invalid request" (code -1025) regardless of payload validity.
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://login.fyers.in",
+            "Referer": "https://login.fyers.in/",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -711,13 +729,15 @@ class FyersAuthManager:
         error_code = response_data.get('code', response.status_code)
         logger.error(f"{step} failed: {error_msg} (code: {error_code})")
         print(f" Error: {error_msg}")
-        # Code -1025 is Fyers' generic "invalid request" — almost always caused by
-        # passing a phone/email as fy_id instead of the Fyers Client ID.
+        # Code -1025 is Fyers' generic "invalid request". The two common causes are:
+        #   1. fy_id is a phone/email (or otherwise not a real Fyers Client ID), or
+        #   2. the Client ID has a typo and doesn't exist in Fyers' system.
         if str(error_code) == '-1025' and step == 'send OTP':
             print(
-                "   Hint: fy_id must be your Fyers Client ID (login username, e.g. 'XK00123'),\n"
-                "         not your phone number or email. It's the same ID you use at\n"
-                "         https://login.fyers.in/."
+                "   Hint: 'invalid request' from Fyers usually means the Fyers Client ID\n"
+                "         is wrong. It must be your login username (e.g. 'XK00123') —\n"
+                "         the same ID you use at https://login.fyers.in/. Double-check\n"
+                "         for typos (letters vs digits, missing characters)."
             )
         return None
 
