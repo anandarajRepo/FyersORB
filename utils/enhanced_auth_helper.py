@@ -87,6 +87,9 @@ class FyersAuthManager:
         self.redirect_uri = os.environ.get('FYERS_REDIRECT_URI', "https://trade.fyers.in/api-login/redirect-to-app")
         self.access_token = os.environ.get('FYERS_ACCESS_TOKEN')
         self.pin = os.environ.get('FYERS_PIN')
+        # Fyers login username (Client ID like "XK00123"). This is distinct from
+        # FYERS_CLIENT_ID which identifies the registered App (e.g. "XXXXXX-100").
+        self.fy_id = os.environ.get('FYERS_FY_ID')
 
         # API endpoints
         self.auth_url = "https://api-t1.fyers.in/api/v3/generate-authcode"
@@ -519,13 +522,18 @@ class FyersAuthManager:
             print(f"\n STEP 2: ENTER YOUR CREDENTIALS")
             print("=" * 70)
 
-            # Phone number / email
+            # Fyers Client ID (login username, e.g. "XK00123"). This is NOT the
+            # app's FYERS_CLIENT_ID and NOT a phone number or email.
             print(f"\nEnter your Fyers login credentials:")
+            print(" Your Fyers Client ID is your login username (e.g. 'XK00123').")
+            print(" It is the same ID you use at https://login.fyers.in/.")
+            default_fy_id = self.fy_id or ''
+            default_hint = f" [{default_fy_id}]" if default_fy_id else ""
             while True:
-                phone_or_email = input(" Phone Number / Email: ").strip()
-                if phone_or_email:
+                fy_id = input(f" Fyers Client ID{default_hint}: ").strip() or default_fy_id
+                if fy_id:
                     break
-                print(" Cannot be empty. Please enter your phone number or email.")
+                print(" Cannot be empty. Please enter your Fyers Client ID.")
 
             # Fyers login flow is OTP + PIN based; no password is required.
             # OTP - Trigger sending
@@ -533,10 +541,15 @@ class FyersAuthManager:
             print("=" * 70)
             print("Sending OTP to your registered phone number...")
 
-            request_id = self._send_otp(phone_or_email)
+            request_id = self._send_otp(fy_id)
             if not request_id:
-                print(" Failed to send OTP. Please check your Fyers ID and try again.")
+                print(" Failed to send OTP. Please check your Fyers Client ID and try again.")
                 return None
+
+            # Save fy_id for future runs now that we know it's valid
+            if fy_id != self.fy_id:
+                self.save_to_env('FYERS_FY_ID', fy_id)
+                self.fy_id = fy_id
 
             print("OTP has been sent to your registered phone number.")
             print("Check your SMS and enter the OTP below.")
@@ -588,7 +601,7 @@ class FyersAuthManager:
 
             # Attempt direct API authentication with the OTP we just verified
             auth_code = self._verify_otp_and_get_authcode(
-                phone_or_email, otp, pin, request_id
+                fy_id, otp, pin, request_id
             )
 
             if not auth_code:
@@ -664,8 +677,19 @@ class FyersAuthManager:
 
     def _post_login_api(self, url: str, payload: dict, step: str) -> Optional[dict]:
         """POST to a Fyers login-flow endpoint and return the parsed JSON body, or None on failure"""
+        # Fyers vagator service rejects requests without a browser-like User-Agent
+        # with a generic "invalid request" (code -1025), so send one explicitly.
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        }
         try:
-            headers = {"Content-Type": "application/json"}
             response = requests.post(url, headers=headers, json=payload, timeout=30)
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error during {step}: {e}")
@@ -687,19 +711,49 @@ class FyersAuthManager:
         error_code = response_data.get('code', response.status_code)
         logger.error(f"{step} failed: {error_msg} (code: {error_code})")
         print(f" Error: {error_msg}")
+        # Code -1025 is Fyers' generic "invalid request" — almost always caused by
+        # passing a phone/email as fy_id instead of the Fyers Client ID.
+        if str(error_code) == '-1025' and step == 'send OTP':
+            print(
+                "   Hint: fy_id must be your Fyers Client ID (login username, e.g. 'XK00123'),\n"
+                "         not your phone number or email. It's the same ID you use at\n"
+                "         https://login.fyers.in/."
+            )
         return None
 
-    def _send_otp(self, phone_or_email: str, password: str = None) -> Optional[str]:
-        """Send OTP to user's registered phone number.
+    def _send_otp(self, fy_id: str, password: str = None) -> Optional[str]:
+        """Send OTP to the user's registered phone number.
+
+        ``fy_id`` must be the Fyers Client ID / login username (e.g. ``"XK00123"``),
+        NOT a phone number or email — the vagator endpoint rejects those with
+        error code ``-1025`` ("invalid request").
 
         Uses Fyers login endpoint ``send_login_otp_v2`` on the vagator service. The
         ``password`` argument is accepted for backward compatibility but is not used:
         the Fyers login flow is OTP + PIN based and does not take a password.
         """
-        # Fyers expects a plain phone number or client id — strip any leading "+"
-        # that users often include with country codes.
-        fy_id = phone_or_email.strip().lstrip('+')
-        logger.info(f"Sending OTP to {fy_id}...")
+        fy_id = (fy_id or "").strip()
+        # Detect common mistake: user entered a 10-digit phone number instead of their
+        # Fyers Client ID. Fail fast with a clear message rather than letting the
+        # server return an opaque -1025.
+        digits_only = fy_id.lstrip('+').replace(' ', '')
+        if digits_only.isdigit() and len(digits_only) >= 10 and '@' not in fy_id:
+            logger.error(f"Rejected fy_id '{fy_id}': looks like a phone number, not a Fyers Client ID")
+            print(
+                " Error: That looks like a phone number, but Fyers expects your\n"
+                "        Fyers Client ID (login username, e.g. 'XK00123'). This is\n"
+                "        the same ID you use to log in at https://login.fyers.in/."
+            )
+            return None
+        if '@' in fy_id:
+            logger.error(f"Rejected fy_id '{fy_id}': email is not accepted by send_login_otp_v2")
+            print(
+                " Error: Email addresses are not accepted by the Fyers OTP endpoint.\n"
+                "        Use your Fyers Client ID (login username, e.g. 'XK00123')."
+            )
+            return None
+
+        logger.info(f"Sending OTP for Fyers ID {fy_id}...")
 
         otp_url = "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2"
         payload = {
@@ -771,7 +825,7 @@ class FyersAuthManager:
         logger.info("PIN verified successfully")
         return interim_token
 
-    def _get_auth_code(self, interim_token: str, phone_or_email: str) -> Optional[str]:
+    def _get_auth_code(self, interim_token: str, fy_id: str) -> Optional[str]:
         """Exchange the interim access token for an authorization code"""
         logger.info("Requesting authorization code...")
 
@@ -783,7 +837,7 @@ class FyersAuthManager:
             app_id, app_type = self.client_id or '', '100'
 
         payload = {
-            "fyers_id": phone_or_email,
+            "fyers_id": fy_id,
             "app_id": app_id,
             "redirect_uri": self.redirect_uri,
             "appType": app_type,
@@ -835,7 +889,7 @@ class FyersAuthManager:
         return None
 
     def _verify_otp_and_get_authcode(
-        self, phone_or_email: str, otp: str, pin: str, request_id: str = None
+        self, fy_id: str, otp: str, pin: str, request_id: str = None
     ) -> Optional[str]:
         """Verify OTP and PIN, then get authorization code.
 
@@ -855,10 +909,10 @@ class FyersAuthManager:
         if not interim_token:
             return None
 
-        return self._get_auth_code(interim_token, phone_or_email)
+        return self._get_auth_code(interim_token, fy_id)
 
     def _attempt_direct_authentication(
-        self, phone_or_email: str, password: str, otp: str, pin: str
+        self, fy_id: str, password: str, otp: str, pin: str
     ) -> Optional[str]:
         """Attempt direct API authentication without browser.
 
@@ -870,7 +924,7 @@ class FyersAuthManager:
 
             # Step 1: Send OTP
             print("  Sending OTP to your registered phone number...")
-            request_id = self._send_otp(phone_or_email)
+            request_id = self._send_otp(fy_id)
 
             if not request_id:
                 logger.error("Failed to send OTP")
@@ -880,7 +934,7 @@ class FyersAuthManager:
 
             # Step 2: Verify OTP and PIN to get auth code
             print("  Verifying OTP and PIN...")
-            auth_code = self._verify_otp_and_get_authcode(phone_or_email, otp, pin, request_id)
+            auth_code = self._verify_otp_and_get_authcode(fy_id, otp, pin, request_id)
 
             if not auth_code:
                 logger.error("Failed to verify OTP and PIN")
