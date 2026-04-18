@@ -91,6 +91,43 @@ class FyersAuthManager:
         self.token_url = "https://api-t1.fyers.in/api/v3/validate-authcode"
         self.profile_url = "https://api-t1.fyers.in/api/v3/profile"
 
+    def _parse_json_response(self, response_text: str) -> dict:
+        """Parse JSON response, handling extra data after JSON object"""
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError as e:
+            # Try to extract valid JSON if there's extra data
+            if "Extra data" in str(e):
+                # Find the end of the JSON object by tracking braces
+                brace_count = 0
+                in_string = False
+                escape_next = False
+
+                for i, char in enumerate(response_text):
+                    if escape_next:
+                        escape_next = False
+                        continue
+
+                    if char == '\\':
+                        escape_next = True
+                        continue
+
+                    if char == '"' and not escape_next:
+                        in_string = not in_string
+                        continue
+
+                    if not in_string:
+                        if char == '{':
+                            brace_count += 1
+                        elif char == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                # Found the end of the JSON object
+                                return json.loads(response_text[:i + 1])
+
+            # If extraction failed, raise the original error
+            raise
+
     def save_to_env(self, key: str, value: str) -> bool:
         """Save or update environment variable in .env file"""
         try:
@@ -351,7 +388,7 @@ class FyersAuthManager:
             response = requests.post(self.token_url, headers=headers, json=data, timeout=30)
 
             try:
-                response_data = response.json()
+                response_data = self._parse_json_response(response.text)
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON response from token API: {e}")
                 logger.debug(f"Response content: {response.text}")
@@ -385,7 +422,7 @@ class FyersAuthManager:
             response = requests.get(self.profile_url, headers=headers, timeout=10)
 
             if response.status_code == 200:
-                result = response.json()
+                result = self._parse_json_response(response.text)
                 is_valid = result.get('s') == 'ok'
                 logger.debug(f"Token validation result: {'valid' if is_valid else 'invalid'}")
                 return is_valid
@@ -601,7 +638,7 @@ class FyersAuthManager:
                     response = requests.get(self.profile_url, headers=headers, timeout=10)
 
                     if response.status_code == 200:
-                        result = response.json()
+                        result = self._parse_json_response(response.text)
                         if result.get('s') == 'ok':
                             profile_data = result.get('data', {})
                             print(f" Account Name: {profile_data.get('name', 'Unknown')}")
@@ -643,7 +680,7 @@ class FyersAuthManager:
             response = requests.post(otp_url, headers=headers, json=data, timeout=30)
 
             try:
-                response_data = response.json()
+                response_data = self._parse_json_response(response.text)
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON response from OTP API: {e}")
                 logger.debug(f"Response content: {response.text}")
@@ -693,7 +730,7 @@ class FyersAuthManager:
             response = requests.post(verify_url, headers=headers, json=data, timeout=30)
 
             try:
-                response_data = response.json()
+                response_data = self._parse_json_response(response.text)
             except json.JSONDecodeError as e:
                 logger.error(f"Invalid JSON response from verify OTP API: {e}")
                 logger.debug(f"Response content: {response.text}")
@@ -847,7 +884,7 @@ class FyersAuthManager:
                     response = requests.get(self.profile_url, headers=headers, timeout=10)
 
                     if response.status_code == 200:
-                        result = response.json()
+                        result = self._parse_json_response(response.text)
                         if result.get('s') == 'ok':
                             profile_data = result.get('data', {})
                             print(f" Account: {profile_data.get('name', 'Unknown')}")
@@ -926,7 +963,7 @@ class FyersAuthManager:
                     response = requests.get(self.profile_url, headers=headers, timeout=10)
 
                     if response.status_code == 200:
-                        result = response.json()
+                        result = self._parse_json_response(response.text)
                         if result.get('s') == 'ok':
                             profile_data = result.get('data', {})
                             print(f" Account: {profile_data.get('name', 'Unknown')}")
@@ -955,7 +992,7 @@ class FyersAuthManager:
             response = requests.get(self.profile_url, headers=headers, timeout=10)
 
             if response.status_code == 200:
-                result = response.json()
+                result = self._parse_json_response(response.text)
                 if result.get('s') == 'ok':
                     return result.get('data', {})
                 else:
