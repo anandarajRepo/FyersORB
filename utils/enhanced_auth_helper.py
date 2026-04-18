@@ -6,7 +6,9 @@ Provides comprehensive authentication with auto-refresh, PIN support, and error 
 Includes browser automation and automatic redirect URL capture
 """
 
+import base64
 import hashlib
+import re
 import requests
 import logging
 import os
@@ -525,21 +527,15 @@ class FyersAuthManager:
                     break
                 print(" Cannot be empty. Please enter your phone number or email.")
 
-            # Password
-            print(f"\nEnter your Fyers password:")
-            password = self._secure_input(" Password: ")
-            if not password:
-                print(" Password cannot be empty")
-                return None
-
+            # Fyers login flow is OTP + PIN based; no password is required.
             # OTP - Trigger sending
             print(f"\n STEP 3: SEND & VERIFY OTP")
             print("=" * 70)
             print("Sending OTP to your registered phone number...")
 
-            request_id = self._send_otp(phone_or_email, password)
+            request_id = self._send_otp(phone_or_email)
             if not request_id:
-                print(" Failed to send OTP. Please check your credentials and try again.")
+                print(" Failed to send OTP. Please check your Fyers ID and try again.")
                 return None
 
             print("OTP has been sent to your registered phone number.")
@@ -661,116 +657,217 @@ class FyersAuthManager:
             logger.exception("CLI authentication setup error")
             return None
 
-    def _send_otp(self, phone_or_email: str, password: str) -> Optional[str]:
-        """Send OTP to user's registered phone number"""
+    @staticmethod
+    def _b64(value: str) -> str:
+        """Base64-encode a string as required by Fyers login API"""
+        return base64.b64encode(value.encode()).decode()
+
+    def _post_login_api(self, url: str, payload: dict, step: str) -> Optional[dict]:
+        """POST to a Fyers login-flow endpoint and return the parsed JSON body, or None on failure"""
         try:
-            logger.info(f"Sending OTP to {phone_or_email}...")
-
             headers = {"Content-Type": "application/json"}
-
-            # This endpoint sends OTP to the registered phone
-            otp_url = "https://api-t1.fyers.in/api/v3/send-login-otp"
-
-            data = {
-                "fy_id": phone_or_email,
-                "password": password,
-                "appIdHash": self.get_app_id_hash()
-            }
-
-            response = requests.post(otp_url, headers=headers, json=data, timeout=30)
-
-            try:
-                response_data = self._parse_json_response(response.text)
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON response from OTP API: {e}")
-                logger.debug(f"Response content: {response.text}")
-                print(f" Network error: Invalid response format from server")
-                return None
-
-            if response.status_code == 200 and response_data.get('s') == 'ok':
-                logger.info("OTP sent successfully")
-                return response_data.get('request_id') or 'otp_sent'
-            else:
-                error_msg = response_data.get('message', 'Failed to send OTP')
-                logger.error(f"OTP sending failed: {error_msg}")
-                print(f" Error: {error_msg}")
-                return None
-
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
         except requests.exceptions.RequestException as e:
-            logger.error(f"Network error sending OTP: {e}")
+            logger.error(f"Network error during {step}: {e}")
             print(f" Network error: {e}")
             return None
-        except Exception as e:
-            logger.error(f"Error sending OTP: {e}")
-            print(f" Error: {e}")
+
+        try:
+            response_data = self._parse_json_response(response.text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from {step} API: {e}")
+            logger.debug(f"Response status: {response.status_code}, content: {response.text[:500]}")
+            print(f" Invalid response from server during {step} (HTTP {response.status_code})")
             return None
+
+        if response.status_code == 200 and response_data.get('s') == 'ok':
+            return response_data
+
+        error_msg = response_data.get('message') or response_data.get('msg') or f"{step} failed"
+        error_code = response_data.get('code', response.status_code)
+        logger.error(f"{step} failed: {error_msg} (code: {error_code})")
+        print(f" Error: {error_msg}")
+        return None
+
+    def _send_otp(self, phone_or_email: str, password: str = None) -> Optional[str]:
+        """Send OTP to user's registered phone number.
+
+        Uses Fyers v3 login endpoint ``send_login_otp_v2``. The ``password`` argument
+        is accepted for backward compatibility but is not used: the Fyers login flow
+        is OTP + PIN based and does not take a password.
+        """
+        logger.info(f"Sending OTP to {phone_or_email}...")
+
+        otp_url = "https://api-t1.fyers.in/api/v3/send_login_otp_v2"
+        payload = {
+            "fy_id": self._b64(phone_or_email),
+            "app_id": "2",
+        }
+
+        response_data = self._post_login_api(otp_url, payload, step="send OTP")
+        if not response_data:
+            return None
+
+        request_key = (
+            response_data.get('request_key')
+            or (response_data.get('data') or {}).get('request_key')
+        )
+        if not request_key:
+            logger.error(f"No request_key in send-OTP response: {response_data}")
+            print(" Error: Server did not return a request key")
+            return None
+
+        logger.info("OTP sent successfully")
+        return request_key
+
+    def _verify_otp(self, request_key: str, otp: str) -> Optional[str]:
+        """Verify the 6-digit OTP and return the next-step request_key"""
+        logger.info("Verifying OTP...")
+
+        verify_url = "https://api-t1.fyers.in/api/v3/verify_otp"
+        payload = {"request_key": request_key, "otp": otp}
+
+        response_data = self._post_login_api(verify_url, payload, step="verify OTP")
+        if not response_data:
+            return None
+
+        next_key = (
+            response_data.get('request_key')
+            or (response_data.get('data') or {}).get('request_key')
+        )
+        if not next_key:
+            logger.error(f"No request_key in verify-OTP response: {response_data}")
+            print(" Error: Server did not return a request key after OTP verification")
+            return None
+
+        logger.info("OTP verified successfully")
+        return next_key
+
+    def _verify_pin(self, request_key: str, pin: str) -> Optional[str]:
+        """Verify the trading PIN and return an interim access token"""
+        logger.info("Verifying trading PIN...")
+
+        verify_url = "https://api-t1.fyers.in/api/v3/verify_pin_v2"
+        payload = {
+            "request_key": request_key,
+            "identity_type": "pin",
+            "identifier": self._b64(pin),
+        }
+
+        response_data = self._post_login_api(verify_url, payload, step="verify PIN")
+        if not response_data:
+            return None
+
+        data = response_data.get('data') or {}
+        interim_token = data.get('access_token') or response_data.get('access_token')
+        if not interim_token:
+            logger.error(f"No access_token in verify-PIN response: {response_data}")
+            print(" Error: Server did not return an interim access token after PIN verification")
+            return None
+
+        logger.info("PIN verified successfully")
+        return interim_token
+
+    def _get_auth_code(self, interim_token: str, phone_or_email: str) -> Optional[str]:
+        """Exchange the interim access token for an authorization code"""
+        logger.info("Requesting authorization code...")
+
+        token_url = "https://api-t1.fyers.in/api/v3/token"
+        # Fyers app_id is the part of the client_id before the "-<appType>" suffix.
+        if self.client_id and '-' in self.client_id:
+            app_id, app_type = self.client_id.rsplit('-', 1)
+        else:
+            app_id, app_type = self.client_id or '', '100'
+
+        payload = {
+            "fyers_id": phone_or_email,
+            "app_id": app_id,
+            "redirect_uri": self.redirect_uri,
+            "appType": app_type,
+            "code_challenge": "",
+            "state": "sample_state",
+            "scope": "",
+            "nonce": "",
+            "response_type": "code",
+            "create_cookie": True,
+        }
+
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {interim_token}",
+            }
+            response = requests.post(token_url, headers=headers, json=payload, timeout=30)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error requesting auth code: {e}")
+            print(f" Network error: {e}")
+            return None
+
+        try:
+            response_data = self._parse_json_response(response.text)
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON response from token API: {e}")
+            logger.debug(f"Response status: {response.status_code}, content: {response.text[:500]}")
+            print(f" Invalid response from server while fetching auth code (HTTP {response.status_code})")
+            return None
+
+        if response.status_code != 200 or response_data.get('s') != 'ok':
+            error_msg = response_data.get('message') or response_data.get('msg') or 'auth code request failed'
+            logger.error(f"Auth code request failed: {error_msg}")
+            print(f" Error: {error_msg}")
+            return None
+
+        redirect_url = response_data.get('Url') or response_data.get('url') or ''
+        match = re.search(r'[?&]auth_code=([^&]+)', redirect_url)
+        if match:
+            return match.group(1)
+
+        data = response_data.get('data') or {}
+        direct_code = data.get('auth_code') or response_data.get('auth_code')
+        if direct_code:
+            return direct_code
+
+        logger.error(f"No auth_code found in token response: {response_data}")
+        print(" Error: Server did not return an authorization code")
+        return None
 
     def _verify_otp_and_get_authcode(
         self, phone_or_email: str, otp: str, pin: str, request_id: str = None
     ) -> Optional[str]:
-        """Verify OTP and PIN, then get authorization code"""
-        try:
-            logger.info("Verifying OTP and PIN...")
+        """Verify OTP and PIN, then get authorization code.
 
-            headers = {"Content-Type": "application/json"}
-
-            # This endpoint verifies OTP and PIN to get auth code
-            verify_url = "https://api-t1.fyers.in/api/v3/verify-otp"
-
-            data = {
-                "fy_id": phone_or_email,
-                "otp": otp,
-                "pin": pin,
-                "appIdHash": self.get_app_id_hash()
-            }
-
-            if request_id:
-                data["request_id"] = request_id
-
-            response = requests.post(verify_url, headers=headers, json=data, timeout=30)
-
-            try:
-                response_data = self._parse_json_response(response.text)
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON response from verify OTP API: {e}")
-                logger.debug(f"Response content: {response.text}")
-                print(f" Network error: Invalid response format from server")
-                return None
-
-            if response.status_code == 200 and response_data.get('s') == 'ok':
-                auth_code = response_data.get('auth_code')
-                if auth_code:
-                    logger.info("OTP and PIN verified successfully")
-                    return auth_code
-                else:
-                    logger.error("No auth code in response")
-                    print(" Error: No authorization code received")
-                    return None
-            else:
-                error_msg = response_data.get('message', 'OTP verification failed')
-                logger.error(f"OTP verification failed: {error_msg}")
-                print(f" Error: {error_msg}")
-                return None
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error verifying OTP: {e}")
-            print(f" Network error: {e}")
+        Runs the full Fyers v3 login flow:
+        ``verify_otp`` -> ``verify_pin_v2`` -> ``token``.
+        """
+        if not request_id:
+            logger.error("Cannot verify OTP without request_key from send-OTP step")
+            print(" Error: Missing request key from OTP send step")
             return None
-        except Exception as e:
-            logger.error(f"Error verifying OTP: {e}")
-            print(f" Error: {e}")
+
+        next_request_key = self._verify_otp(request_id, otp)
+        if not next_request_key:
             return None
+
+        interim_token = self._verify_pin(next_request_key, pin)
+        if not interim_token:
+            return None
+
+        return self._get_auth_code(interim_token, phone_or_email)
 
     def _attempt_direct_authentication(
         self, phone_or_email: str, password: str, otp: str, pin: str
     ) -> Optional[str]:
-        """Attempt direct API authentication without browser"""
+        """Attempt direct API authentication without browser.
+
+        The ``password`` argument is kept for backward compatibility but is unused:
+        the Fyers login flow is OTP + PIN based.
+        """
         try:
             logger.info("Attempting direct Fyers API authentication...")
 
             # Step 1: Send OTP
             print("  Sending OTP to your registered phone number...")
-            request_id = self._send_otp(phone_or_email, password)
+            request_id = self._send_otp(phone_or_email)
 
             if not request_id:
                 logger.error("Failed to send OTP")
@@ -1024,7 +1121,7 @@ def setup_auth_only():
             print("AUTHENTICATION METHOD SELECTION")
             print("=" * 70)
             print("\n1. CLI-Only (No Browser) - Complete in terminal")
-            print("   - Provide phone, password, OTP, PIN via command line")
+            print("   - Provide Fyers ID, OTP, and PIN via command line")
             print("   - Paste authorization code from browser redirect\n")
             print("2. Browser-Based (Recommended) - Browser opens automatically")
             print("   - Browser opens with login page")
