@@ -488,10 +488,17 @@ class FyersAuthManager:
                 print(" Password cannot be empty")
                 return None
 
-            # OTP
-            print(f"\n STEP 3: VERIFY OTP")
+            # OTP - Trigger sending
+            print(f"\n STEP 3: SEND & VERIFY OTP")
             print("=" * 70)
-            print("An OTP has been sent to your registered phone number.")
+            print("Sending OTP to your registered phone number...")
+
+            request_id = self._send_otp(phone_or_email, password)
+            if not request_id:
+                print(" Failed to send OTP. Please check your credentials and try again.")
+                return None
+
+            print("OTP has been sent to your registered phone number.")
             print("Check your SMS and enter the OTP below.")
 
             while True:
@@ -537,32 +544,20 @@ class FyersAuthManager:
             # Get authorization code via CLI
             print(f"\n STEP 5: GET AUTHORIZATION CODE")
             print("=" * 70)
-            print("You have two options to proceed:")
-            print("\n1. MANUAL OPTION:")
-            print(f"   - Visit this URL in your browser: {auth_url}")
-            print("   - Login with the credentials you just provided")
-            print("   - Complete the 2FA process in the browser")
-            print("   - Copy the authorization code from the redirect URL")
-            print("   - Paste it below\n")
-            print("2. DIRECT API OPTION (if Fyers supports it):")
-            print("   - We'll attempt direct API authentication")
-            print("   - Using your credentials and OTP\n")
+            print("Attempting to obtain authorization code using direct API...")
 
-            auth_method = input("Select option (1/2) [default: 1]: ").strip()
+            # Attempt direct API authentication with the OTP we just verified
+            auth_code = self._verify_otp_and_get_authcode(
+                phone_or_email, otp, pin, request_id
+            )
 
-            if auth_method == '2':
-                # Attempt direct API authentication
-                print(f"\n Attempting direct API authentication...")
-                auth_code = self._attempt_direct_authentication(
-                    phone_or_email, password, otp, pin
-                )
-                if not auth_code:
-                    print(" Direct authentication failed. Please use manual option.")
-                    auth_method = '1'
-
-            if auth_method == '1':
-                # Manual auth code entry
-                print(f"\n After completing authentication in your browser:")
+            if not auth_code:
+                print(" Direct API authentication failed.")
+                print("\nFalling back to manual option:")
+                print(f" Visit this URL in your browser: {auth_url}")
+                print(" Login with the credentials you just provided")
+                print(" Complete the 2FA process in the browser")
+                print(" Copy the authorization code from the redirect URL")
                 auth_code = input(" Paste the authorization code here: ").strip()
 
                 if not auth_code:
@@ -622,27 +617,123 @@ class FyersAuthManager:
             logger.exception("CLI authentication setup error")
             return None
 
+    def _send_otp(self, phone_or_email: str, password: str) -> Optional[str]:
+        """Send OTP to user's registered phone number"""
+        try:
+            logger.info(f"Sending OTP to {phone_or_email}...")
+
+            headers = {"Content-Type": "application/json"}
+
+            # This endpoint sends OTP to the registered phone
+            otp_url = "https://api-t1.fyers.in/api/v3/send-login-otp"
+
+            data = {
+                "fy_id": phone_or_email,
+                "password": password,
+                "appIdHash": self.get_app_id_hash()
+            }
+
+            response = requests.post(otp_url, headers=headers, json=data, timeout=30)
+            response_data = response.json()
+
+            if response.status_code == 200 and response_data.get('s') == 'ok':
+                logger.info("OTP sent successfully")
+                return response_data.get('request_id') or 'otp_sent'
+            else:
+                error_msg = response_data.get('message', 'Failed to send OTP')
+                logger.error(f"OTP sending failed: {error_msg}")
+                print(f" Error: {error_msg}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error sending OTP: {e}")
+            print(f" Network error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error sending OTP: {e}")
+            print(f" Error: {e}")
+            return None
+
+    def _verify_otp_and_get_authcode(
+        self, phone_or_email: str, otp: str, pin: str, request_id: str = None
+    ) -> Optional[str]:
+        """Verify OTP and PIN, then get authorization code"""
+        try:
+            logger.info("Verifying OTP and PIN...")
+
+            headers = {"Content-Type": "application/json"}
+
+            # This endpoint verifies OTP and PIN to get auth code
+            verify_url = "https://api-t1.fyers.in/api/v3/verify-otp"
+
+            data = {
+                "fy_id": phone_or_email,
+                "otp": otp,
+                "pin": pin,
+                "appIdHash": self.get_app_id_hash()
+            }
+
+            if request_id:
+                data["request_id"] = request_id
+
+            response = requests.post(verify_url, headers=headers, json=data, timeout=30)
+            response_data = response.json()
+
+            if response.status_code == 200 and response_data.get('s') == 'ok':
+                auth_code = response_data.get('auth_code')
+                if auth_code:
+                    logger.info("OTP and PIN verified successfully")
+                    return auth_code
+                else:
+                    logger.error("No auth code in response")
+                    print(" Error: No authorization code received")
+                    return None
+            else:
+                error_msg = response_data.get('message', 'OTP verification failed')
+                logger.error(f"OTP verification failed: {error_msg}")
+                print(f" Error: {error_msg}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error verifying OTP: {e}")
+            print(f" Network error: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error verifying OTP: {e}")
+            print(f" Error: {e}")
+            return None
+
     def _attempt_direct_authentication(
         self, phone_or_email: str, password: str, otp: str, pin: str
     ) -> Optional[str]:
         """Attempt direct API authentication without browser"""
         try:
-            # This is a placeholder for direct authentication
-            # The exact endpoint depends on Fyers API implementation
             logger.info("Attempting direct Fyers API authentication...")
 
-            # Note: This depends on Fyers API supporting direct authentication
-            # without OAuth browser flow. You may need to adjust based on
-            # actual Fyers API capabilities.
+            # Step 1: Send OTP
+            print("  Sending OTP to your registered phone number...")
+            request_id = self._send_otp(phone_or_email, password)
 
-            print("  Note: Direct API authentication depends on Fyers API support")
-            print("  If not supported, use manual browser option")
+            if not request_id:
+                logger.error("Failed to send OTP")
+                return None
 
-            # Return None to indicate fallback to manual method
-            return None
+            print("  OTP sent successfully!")
+
+            # Step 2: Verify OTP and PIN to get auth code
+            print("  Verifying OTP and PIN...")
+            auth_code = self._verify_otp_and_get_authcode(phone_or_email, otp, pin, request_id)
+
+            if not auth_code:
+                logger.error("Failed to verify OTP and PIN")
+                return None
+
+            print("  Authorization code obtained!")
+            return auth_code
 
         except Exception as e:
             logger.debug(f"Direct authentication attempt failed: {e}")
+            print(f" Direct authentication failed: {e}")
             return None
 
     def setup_browser_authentication(self, port: int = 5000) -> Optional[str]:
