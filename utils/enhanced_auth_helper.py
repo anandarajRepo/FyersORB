@@ -349,7 +349,14 @@ class FyersAuthManager:
             }
 
             response = requests.post(self.token_url, headers=headers, json=data, timeout=30)
-            response_data = response.json()
+
+            try:
+                response_data = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON response from token API: {e}")
+                logger.debug(f"Response content: {response.text}")
+                logger.error(f"Token exchange failed: Invalid response format")
+                return None
 
             if response.status_code == 200 and response_data.get('s') == 'ok':
                 access_token = response_data.get('access_token')
@@ -634,7 +641,14 @@ class FyersAuthManager:
             }
 
             response = requests.post(otp_url, headers=headers, json=data, timeout=30)
-            response_data = response.json()
+
+            try:
+                response_data = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON response from OTP API: {e}")
+                logger.debug(f"Response content: {response.text}")
+                print(f" Network error: Invalid response format from server")
+                return None
 
             if response.status_code == 200 and response_data.get('s') == 'ok':
                 logger.info("OTP sent successfully")
@@ -677,7 +691,14 @@ class FyersAuthManager:
                 data["request_id"] = request_id
 
             response = requests.post(verify_url, headers=headers, json=data, timeout=30)
-            response_data = response.json()
+
+            try:
+                response_data = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON response from verify OTP API: {e}")
+                logger.debug(f"Response content: {response.text}")
+                print(f" Network error: Invalid response format from server")
+                return None
 
             if response.status_code == 200 and response_data.get('s') == 'ok':
                 auth_code = response_data.get('auth_code')
