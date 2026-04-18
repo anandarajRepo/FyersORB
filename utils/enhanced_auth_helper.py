@@ -692,15 +692,18 @@ class FyersAuthManager:
     def _send_otp(self, phone_or_email: str, password: str = None) -> Optional[str]:
         """Send OTP to user's registered phone number.
 
-        Uses Fyers v3 login endpoint ``send_login_otp_v2``. The ``password`` argument
-        is accepted for backward compatibility but is not used: the Fyers login flow
-        is OTP + PIN based and does not take a password.
+        Uses Fyers login endpoint ``send_login_otp_v2`` on the vagator service. The
+        ``password`` argument is accepted for backward compatibility but is not used:
+        the Fyers login flow is OTP + PIN based and does not take a password.
         """
-        logger.info(f"Sending OTP to {phone_or_email}...")
+        # Fyers expects a plain phone number or client id — strip any leading "+"
+        # that users often include with country codes.
+        fy_id = phone_or_email.strip().lstrip('+')
+        logger.info(f"Sending OTP to {fy_id}...")
 
-        otp_url = "https://api-t1.fyers.in/api/v3/send_login_otp_v2"
+        otp_url = "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2"
         payload = {
-            "fy_id": self._b64(phone_or_email),
+            "fy_id": self._b64(fy_id),
             "app_id": "2",
         }
 
@@ -724,7 +727,7 @@ class FyersAuthManager:
         """Verify the 6-digit OTP and return the next-step request_key"""
         logger.info("Verifying OTP...")
 
-        verify_url = "https://api-t1.fyers.in/api/v3/verify_otp"
+        verify_url = "https://api-t2.fyers.in/vagator/v2/verify_otp"
         payload = {"request_key": request_key, "otp": otp}
 
         response_data = self._post_login_api(verify_url, payload, step="verify OTP")
@@ -747,7 +750,7 @@ class FyersAuthManager:
         """Verify the trading PIN and return an interim access token"""
         logger.info("Verifying trading PIN...")
 
-        verify_url = "https://api-t1.fyers.in/api/v3/verify_pin_v2"
+        verify_url = "https://api-t2.fyers.in/vagator/v2/verify_pin_v2"
         payload = {
             "request_key": request_key,
             "identity_type": "pin",
