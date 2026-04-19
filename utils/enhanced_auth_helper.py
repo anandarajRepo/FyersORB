@@ -774,6 +774,21 @@ class FyersAuthManager:
                 "        Use your Fyers Client ID (login username, e.g. 'XK00123')."
             )
             return None
+        # Detect common mistake: user entered the Fyers *App* Client ID (e.g.
+        # "TMX3VZXIK5-200" or "ABCDEF-100") instead of their *login* username.
+        # App Client IDs follow the pattern ALPHANUMERIC-DIGITS (the part set in
+        # FYERS_CLIENT_ID / FYERS_SECRET_KEY environment variables).
+        if re.match(r'^[A-Z0-9]+-\d{2,3}$', fy_id):
+            logger.error(
+                f"Rejected fy_id '{fy_id}': looks like an App Client ID, not a Fyers login username"
+            )
+            print(
+                f" Error: '{fy_id}' looks like a Fyers App Client ID (the one used\n"
+                "        for API access), NOT your login username.\n"
+                "        Your login username is a short alphanumeric code like 'XK00123'\n"
+                "        — the same ID you type at https://login.fyers.in/."
+            )
+            return None
 
         logger.info(f"Sending OTP for Fyers ID {fy_id}...")
 
