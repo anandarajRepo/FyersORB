@@ -647,8 +647,9 @@ class FyersAuthManager:
             # those extra headers cause Fyers' edge to reject the request
             # with the generic "invalid request" (-1025) response.
             session.headers.update({
-                "Accept": "application/json",
+                "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "en-US,en;q=0.9",
+                "Content-Type": "application/json",
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -688,6 +689,7 @@ class FyersAuthManager:
         # reject pretty-printed JSON with -1025 "invalid request".
         body = json.dumps(payload, separators=(',', ':'))
 
+        logger.debug(f"{step} → POST {url} | headers={dict(session.headers)} | body={body}")
         try:
             response = session.post(
                 url,
@@ -700,11 +702,12 @@ class FyersAuthManager:
             print(f" Network error: {e}")
             return None
 
+        logger.debug(f"{step} ← HTTP {response.status_code} | body={response.text[:1000]}")
         try:
             response_data = self._parse_json_response(response.text)
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON response from {step} API: {e}")
-            logger.debug(f"Response status: {response.status_code}, content: {response.text[:500]}")
+            logger.error(f"Response status: {response.status_code}, content: {response.text[:500]}")
             print(f" Invalid response from server during {step} (HTTP {response.status_code})")
             return None
 
@@ -714,6 +717,7 @@ class FyersAuthManager:
         error_msg = response_data.get('message') or response_data.get('msg') or f"{step} failed"
         error_code = response_data.get('code', response.status_code)
         logger.error(f"{step} failed: {error_msg} (code: {error_code})")
+        logger.error(f"{step} full response [{response.status_code}]: {response.text[:800]}")
 
         # Expose the error payload so callers can implement endpoint-version
         # fallbacks without re-parsing the HTTP response.
@@ -785,6 +789,8 @@ class FyersAuthManager:
         endpoints = [
             "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2",
             "https://api-t2.fyers.in/vagator/v2/send_login_otp_v3",
+            "https://api-t1.fyers.in/vagator/v2/send_login_otp_v2",
+            "https://api-t1.fyers.in/vagator/v2/send_login_otp_v3",
         ]
 
         success_data: Optional[dict] = None
