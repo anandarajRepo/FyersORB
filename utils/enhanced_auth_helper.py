@@ -2,7 +2,7 @@
 
 """
 Enhanced Fyers Authentication Helper for ORB Trading Strategy
-CLI-only SEBI-compliant daily 2FA authentication (no browser flow).
+Provides manual browser-based and CLI authentication with SEBI-compliant daily 2FA.
 """
 
 import base64
@@ -420,7 +420,7 @@ class FyersAuthManager:
                 print("Per SEBI guidelines (effective April 1, 2026), daily 2FA is mandatory.")
                 print("Refresh tokens are no longer supported.")
                 print(f"Last authenticated: {last_auth_date or 'never'}")
-                access_token = self.setup_cli_authentication()
+                access_token = self.setup_full_authentication()
                 if access_token:
                     self.save_to_env('FYERS_LAST_AUTH_DATE', today)
                     logger.info(f"SEBI daily 2FA completed successfully for {today}")
@@ -433,7 +433,7 @@ class FyersAuthManager:
 
             # Token expired mid-session — full re-auth required (no refresh tokens per SEBI)
             logger.info("Access token is invalid or expired. Full re-authentication required (SEBI: no refresh tokens).")
-            access_token = self.setup_cli_authentication()
+            access_token = self.setup_full_authentication()
             if access_token:
                 self.save_to_env('FYERS_LAST_AUTH_DATE', today)
             return access_token
@@ -570,8 +570,16 @@ class FyersAuthManager:
 
             if not auth_code:
                 print(" Direct API authentication failed.")
-                print(" Check your Fyers Client ID, OTP, and PIN and try again.")
-                return None
+                print("\nFalling back to manual option:")
+                print(f" Visit this URL in your browser: {auth_url}")
+                print(" Login with the credentials you just provided")
+                print(" Complete the 2FA process in the browser")
+                print(" Copy the authorization code from the redirect URL")
+                auth_code = input(" Paste the authorization code here: ").strip()
+
+                if not auth_code:
+                    print(" No authorization code provided")
+                    return None
 
             # Exchange auth code for access token
             print(f"\n STEP 6: EXCHANGE CODE FOR TOKEN")
@@ -1010,6 +1018,85 @@ class FyersAuthManager:
 
         return self._get_auth_code(interim_token, fy_id)
 
+    def setup_full_authentication(self) -> Optional[str]:
+        """Complete daily 2FA authentication flow via manual browser copy/paste (SEBI-compliant, no refresh tokens)"""
+        try:
+            print("\n" + "=" * 70)
+            print("FYERS API DAILY 2FA AUTHENTICATION (MANUAL BROWSER)")
+            print("=" * 70)
+            print("Refresh tokens are disabled per SEBI regulations (effective April 1, 2026).")
+            print("You must complete this 2FA authentication every trading day.")
+
+            if not all([self.client_id, self.secret_key]):
+                print(" Missing CLIENT_ID or SECRET_KEY in environment variables")
+                return None
+
+            # Generate auth URL
+            auth_url = self.generate_auth_url()
+            if not auth_url:
+                print(" Failed to generate authentication URL")
+                return None
+
+            print(f"\n AUTHENTICATION STEPS:")
+            print(f"1. Open this URL in your web browser:")
+            print(f"   {auth_url}")
+            print(f"\n2. Log in to your Fyers account and complete 2FA")
+            print(f"3. Copy the authorization code from the redirect URL")
+            print(f"\n The redirect URL will look like:")
+            print(f"   {self.redirect_uri}?code=YOUR_AUTH_CODE&state=sample_state")
+
+            # Get auth code from user
+            print(f"\n" + "=" * 50)
+            auth_code = input(" Enter the authorization code: ").strip()
+
+            if not auth_code:
+                print(" No authorization code provided")
+                return None
+
+            # Exchange auth code for access token
+            print(" Exchanging authorization code for access token...")
+            access_token = self.get_access_token_from_auth_code(auth_code)
+
+            if not access_token:
+                print(" Failed to obtain access token")
+                return None
+
+            print(" Access token obtained successfully!")
+
+            # Save access token to .env
+            print(f"\n Saving access token...")
+            if self.save_to_env('FYERS_ACCESS_TOKEN', access_token):
+                print(f" Saved: Access Token")
+
+            # Verify the setup
+            if self.is_token_valid(access_token):
+                print(f"\n AUTHENTICATION SUCCESSFUL!")
+                print(f" Access token is valid and ready to use")
+
+                # Try to get profile info
+                try:
+                    headers = {'Authorization': f"{self.client_id}:{access_token}"}
+                    response = requests.get(self.profile_url, headers=headers, timeout=10)
+
+                    if response.status_code == 200:
+                        result = self._parse_json_response(response.text)
+                        if result.get('s') == 'ok':
+                            profile_data = result.get('data', {})
+                            print(f" Account: {profile_data.get('name', 'Unknown')}")
+                            print(f" Email: {profile_data.get('email', 'Unknown')}")
+                except Exception:
+                    pass  # Profile fetch is optional
+
+                return access_token
+            else:
+                print(f" Token validation failed after setup")
+                return None
+
+        except Exception as e:
+            print(f" Authentication setup failed: {e}")
+            logger.exception("Full authentication setup error")
+            return None
+
     def get_profile_info(self, access_token: str = None) -> Dict[str, Any]:
         """Get user profile information"""
         try:
@@ -1035,9 +1122,9 @@ class FyersAuthManager:
 
 # Convenience functions for main.py
 def setup_auth_only():
-    """SEBI-compliant daily 2FA CLI-only authentication setup"""
+    """SEBI-compliant daily 2FA authentication setup (manual browser flow)"""
     print("=" * 80)
-    print("FYERS API DAILY 2FA AUTHENTICATION SETUP (CLI-ONLY)")
+    print("FYERS API DAILY 2FA AUTHENTICATION SETUP")
     print("=" * 80)
 
     try:
@@ -1058,8 +1145,8 @@ def setup_auth_only():
             auth_manager.client_id = existing_client_id
             auth_manager.secret_key = existing_secret_key
 
-            print("\nStarting CLI-only authentication flow...")
-            access_token = auth_manager.setup_cli_authentication()
+            print("\nStarting manual authentication flow...")
+            access_token = auth_manager.setup_full_authentication()
 
             if access_token:
                 print("\nAuthentication successful!")
@@ -1103,8 +1190,8 @@ def setup_auth_only():
         auth_manager.secret_key = secret_key
         auth_manager.redirect_uri = redirect_uri
 
-        print("\nPerforming CLI-only authentication...")
-        access_token = auth_manager.setup_cli_authentication()
+        print("\nPerforming manual authentication...")
+        access_token = auth_manager.setup_full_authentication()
 
         if access_token:
             print("\nSEBI-compliant daily 2FA authentication setup completed!")
