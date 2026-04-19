@@ -39,6 +39,12 @@ class FyersAuthManager:
         self.token_url = "https://api-t1.fyers.in/api/v3/validate-authcode"
         self.profile_url = "https://api-t1.fyers.in/api/v3/profile"
 
+        # Shared HTTP session for the login flow. Cookies set by the vagator
+        # service (e.g. CSRF / session) must persist across send_otp →
+        # verify_otp → verify_pin → token. Also matches the browser-like
+        # request pattern the vagator endpoints expect.
+        self._login_session: Optional[requests.Session] = None
+
     def _parse_json_response(self, response_text: str) -> dict:
         """Parse JSON response, handling extra data after JSON object"""
         try:
@@ -625,25 +631,67 @@ class FyersAuthManager:
         """Base64-encode a string as required by Fyers login API"""
         return base64.b64encode(value.encode()).decode()
 
-    def _post_login_api(self, url: str, payload: dict, step: str) -> Optional[dict]:
-        """POST to a Fyers login-flow endpoint and return the parsed JSON body, or None on failure"""
-        # The vagator service is normally called from login.fyers.in. Without a
-        # browser-like User-Agent and matching Origin/Referer, it returns the
-        # generic "invalid request" (code -1025) regardless of payload validity.
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Origin": "https://login.fyers.in",
-            "Referer": "https://login.fyers.in/",
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-        }
+    def _get_login_session(self) -> requests.Session:
+        """Return a lazily-initialised ``requests.Session`` for the login flow.
+
+        The vagator login endpoints rely on cookies (CSRF / session) set by
+        the initial ``send_login_otp`` response. Using a shared session keeps
+        those cookies across the subsequent ``verify_otp`` / ``verify_pin`` /
+        ``token`` calls.
+        """
+        if self._login_session is None:
+            session = requests.Session()
+            # Match the header set used by the widely-deployed reference
+            # implementation (https://github.com/tkanhe/fyers-api-access-token-v3).
+            # Notable omissions: Origin / Referer / Content-Type. In practice
+            # those extra headers cause Fyers' edge to reject the request
+            # with the generic "invalid request" (-1025) response.
+            session.headers.update({
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.9",
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            })
+            self._login_session = session
+        return self._login_session
+
+    def _reset_login_session(self) -> None:
+        """Drop any cached cookies/state from the login session."""
+        if self._login_session is not None:
+            try:
+                self._login_session.close()
+            except Exception:
+                pass
+        self._login_session = None
+
+    def _post_login_api(
+        self,
+        url: str,
+        payload: dict,
+        step: str,
+        *,
+        extra_headers: Optional[Dict[str, str]] = None,
+        suppress_error_print: bool = False,
+    ) -> Optional[dict]:
+        """POST to a Fyers login-flow endpoint and return the parsed JSON body, or None on failure.
+
+        Sends the body as a raw JSON string via ``data=`` (mirroring the
+        reference implementation) so we don't force a ``Content-Type`` header
+        that Fyers' edge has been observed to reject with -1025.
+        """
+        session = self._get_login_session()
+        body = json.dumps(payload)
+
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
+            response = session.post(
+                url,
+                data=body,
+                headers=extra_headers or None,
+                timeout=30,
+            )
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error during {step}: {e}")
             print(f" Network error: {e}")
@@ -663,10 +711,20 @@ class FyersAuthManager:
         error_msg = response_data.get('message') or response_data.get('msg') or f"{step} failed"
         error_code = response_data.get('code', response.status_code)
         logger.error(f"{step} failed: {error_msg} (code: {error_code})")
+
+        # Expose the error payload so callers can implement endpoint-version
+        # fallbacks without re-parsing the HTTP response.
+        response_data.setdefault('_error_code', error_code)
+        response_data['_http_status'] = response.status_code
+
+        if suppress_error_print:
+            return response_data
+
         print(f" Error: {error_msg}")
-        # Code -1025 is Fyers' generic "invalid request". The two common causes are:
-        #   1. fy_id is a phone/email (or otherwise not a real Fyers Client ID), or
-        #   2. the Client ID has a typo and doesn't exist in Fyers' system.
+        # Code -1025 is Fyers' generic "invalid request". Common causes:
+        #   1. Fyers Client ID is wrong / has a typo, or a phone/email was entered
+        #   2. The vagator endpoint version (v2 vs v3) changed server-side
+        #   3. Extra headers (Origin/Referer/Content-Type) tripping the edge WAF
         if str(error_code) == '-1025' and step == 'send OTP':
             print(
                 "   Hint: 'invalid request' from Fyers usually means the Fyers Client ID\n"
@@ -683,9 +741,11 @@ class FyersAuthManager:
         NOT a phone number or email — the vagator endpoint rejects those with
         error code ``-1025`` ("invalid request").
 
-        Uses Fyers login endpoint ``send_login_otp_v2`` on the vagator service. The
-        ``password`` argument is accepted for backward compatibility but is not used:
-        the Fyers login flow is OTP + PIN based and does not take a password.
+        Tries the ``send_login_otp_v2`` endpoint on the vagator service first and
+        falls back to ``send_login_otp_v3`` if Fyers rejects v2 with the generic
+        -1025 "invalid request" (seen when Fyers rotates the supported version).
+        The ``password`` argument is accepted for backward compatibility but is
+        not used: the Fyers login flow is OTP + PIN based.
         """
         fy_id = (fy_id or "").strip()
         # Detect common mistake: user entered a 10-digit phone number instead of their
@@ -701,7 +761,7 @@ class FyersAuthManager:
             )
             return None
         if '@' in fy_id:
-            logger.error(f"Rejected fy_id '{fy_id}': email is not accepted by send_login_otp_v2")
+            logger.error(f"Rejected fy_id '{fy_id}': email is not accepted by the login endpoint")
             print(
                 " Error: Email addresses are not accepted by the Fyers OTP endpoint.\n"
                 "        Use your Fyers Client ID (login username, e.g. 'XK00123')."
@@ -710,22 +770,74 @@ class FyersAuthManager:
 
         logger.info(f"Sending OTP for Fyers ID {fy_id}...")
 
-        otp_url = "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2"
+        # Each send-OTP attempt starts a fresh login session so stale cookies
+        # from a previous failed attempt don't poison the new flow.
+        self._reset_login_session()
+
         payload = {
             "fy_id": self._b64(fy_id),
             "app_id": "2",
         }
 
-        response_data = self._post_login_api(otp_url, payload, step="send OTP")
-        if not response_data:
+        endpoints = [
+            "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2",
+            "https://api-t2.fyers.in/vagator/v2/send_login_otp_v3",
+        ]
+
+        success_data: Optional[dict] = None
+        last_error: Optional[dict] = None
+        for otp_url in endpoints:
+            # Ask _post_login_api to return the raw error body so we can
+            # decide whether to try the next endpoint version before
+            # surfacing the failure to the user.
+            response_data = self._post_login_api(
+                otp_url,
+                payload,
+                step="send OTP",
+                suppress_error_print=True,
+            )
+            if response_data and response_data.get('s') == 'ok':
+                success_data = response_data
+                break
+
+            last_error = response_data or {}
+            error_code = str(last_error.get('_error_code', ''))
+            http_status = last_error.get('_http_status')
+
+            # Only fall through to the next endpoint version on signals that
+            # point at an endpoint/version mismatch. Genuine validation errors
+            # (bad Client ID, rate limits, etc.) should fail fast.
+            if error_code != '-1025' and http_status != 404:
+                break
+
+            logger.info(
+                f"send_login_otp rejected at {otp_url.rsplit('/', 1)[-1]} "
+                f"(code {error_code or http_status}); trying next endpoint version."
+            )
+
+        if success_data is None:
+            if last_error:
+                err = (
+                    last_error.get('message')
+                    or last_error.get('msg')
+                    or 'send OTP failed'
+                )
+                print(f" Error: {err}")
+                if str(last_error.get('_error_code')) == '-1025':
+                    print(
+                        "   Hint: 'invalid request' from Fyers usually means the Fyers Client ID\n"
+                        "         is wrong. It must be your login username (e.g. 'XK00123') —\n"
+                        "         the same ID you use at https://login.fyers.in/. Double-check\n"
+                        "         for typos (letters vs digits, missing characters)."
+                    )
             return None
 
         request_key = (
-            response_data.get('request_key')
-            or (response_data.get('data') or {}).get('request_key')
+            success_data.get('request_key')
+            or (success_data.get('data') or {}).get('request_key')
         )
         if not request_key:
-            logger.error(f"No request_key in send-OTP response: {response_data}")
+            logger.error(f"No request_key in send-OTP response: {success_data}")
             print(" Error: Server did not return a request key")
             return None
 
@@ -804,12 +916,20 @@ class FyersAuthManager:
             "create_cookie": True,
         }
 
+        # Reuse the login session so cookies set earlier in the flow carry
+        # through to the token endpoint (mirrors the tkanhe reference).
+        session = self._get_login_session()
         try:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {interim_token}",
-            }
-            response = requests.post(token_url, headers=headers, json=payload, timeout=30)
+            response = session.post(
+                token_url,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {interim_token}",
+                },
+                data=json.dumps(payload),
+                timeout=30,
+                allow_redirects=False,
+            )
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error requesting auth code: {e}")
             print(f" Network error: {e}")
