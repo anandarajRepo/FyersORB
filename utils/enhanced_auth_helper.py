@@ -683,7 +683,10 @@ class FyersAuthManager:
         that Fyers' edge has been observed to reject with -1025.
         """
         session = self._get_login_session()
-        body = json.dumps(payload)
+        # Compact separators (no whitespace) match the byte-for-byte format of
+        # the widely-used reference client. Fyers' edge has been observed to
+        # reject pretty-printed JSON with -1025 "invalid request".
+        body = json.dumps(payload, separators=(',', ':'))
 
         try:
             response = session.post(
