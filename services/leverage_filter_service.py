@@ -101,9 +101,11 @@ class LeverageFilterService:
                 logger.warning(f"Invalid price for leverage check: {symbol} price={current_price}")
                 return None
 
-            # Request margin for 1 share (INTRADAY product type)
-            # The fyers_apiv3 SDK does not expose a generate_margin / span-margin
-            # method, so we call the REST endpoint directly.
+            # Request margin for 1 share (INTRADAY product type).
+            # The fyers_apiv3 SDK does not expose a span_margin method, so we
+            # call the REST endpoint directly.  Fyers v3 requires the
+            # "version: 3" header on every request, otherwise the gateway
+            # returns a plaintext "404 page not found".
             auth_header = "{}:{}".format(
                 self.fyers_config.client_id, self.fyers_config.access_token
             )
@@ -116,45 +118,52 @@ class LeverageFilterService:
                 "limitPrice": 0,
                 "stopPrice": 0,
             }
-            # Fyers API v3: span-margin expects orders wrapped in a "data" array
             payload = {"data": [order]}
             raw = requests.post(
-                f"{self.fyers_config.base_url}/span-margin",
+                f"{self.fyers_config.base_url}/span_margin",
                 json=payload,
                 headers={
                     "Authorization": auth_header,
                     "Content-Type": "application/json",
+                    "version": "3",
                 },
                 timeout=10,
             )
+
+            # Non-2xx responses often come back as plaintext (e.g. "404 page
+            # not found" from the gateway).  Don't try to parse those as JSON
+            # — log at WARNING and fail-open upstream.
+            if raw.status_code >= 400:
+                snippet = (raw.text or "")[:120].strip()
+                logger.warning(
+                    f"Margin API HTTP {raw.status_code} for {symbol}: {snippet!r}"
+                )
+                return None
+
             if not raw.content:
-                response = {}
-            else:
-                try:
-                    response = raw.json()
-                except json.JSONDecodeError:
-                    # Fyers sometimes returns a non-JSON prefix (e.g. "true") before
-                    # the actual JSON payload.  Locate the first { or [ and parse from there.
-                    text = raw.text or ""
-                    logger.debug(
-                        f"Non-JSON prefix in span-margin response for {symbol}: {text[:120]!r}"
+                logger.warning(f"Empty margin response for {symbol}")
+                return None
+
+            try:
+                response = raw.json()
+            except json.JSONDecodeError:
+                # Fyers occasionally prefixes a valid JSON body with junk
+                # (e.g. a bare "true").  Try to recover the JSON object.
+                text = raw.text or ""
+                start = next((i for i, c in enumerate(text) if c in "{["), None)
+                if start is None:
+                    logger.warning(
+                        f"Non-JSON margin response for {symbol}: {text[:120]!r}"
                     )
-                    start = next((i for i, c in enumerate(text) if c in "{["), None)
-                    if start is not None:
-                        try:
-                            response = json.loads(text[start:])
-                        except json.JSONDecodeError as inner:
-                            logger.error(
-                                f"Could not parse span-margin response for {symbol} "
-                                f"(raw={text[:200]!r}): {inner}"
-                            )
-                            return None
-                    else:
-                        logger.error(
-                            f"No JSON object found in span-margin response for {symbol}: "
-                            f"{text[:200]!r}"
-                        )
-                        return None
+                    return None
+                try:
+                    response = json.loads(text[start:])
+                except json.JSONDecodeError as inner:
+                    logger.warning(
+                        f"Unparseable margin response for {symbol} "
+                        f"(raw={text[:120]!r}): {inner}"
+                    )
+                    return None
 
             if not response or response.get('s') != 'ok':
                 error_msg = response.get('message', 'Unknown error') if response else 'No response'
