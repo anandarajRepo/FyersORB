@@ -355,6 +355,54 @@ class OrderManager:
             logger.error(f"Error placing exit order for {position.symbol}: {e}")
             return False
 
+    async def place_partial_exit_order(self, position: Position, partial_qty: int, exit_price: float) -> bool:
+        """
+        Place an MPP exit order for a specific partial quantity.
+        Used for take-profit partial closes — does NOT cancel pending SL/target orders.
+
+        Args:
+            position: The open position to partially exit
+            partial_qty: Number of shares/units to sell (must be <= abs(position.quantity))
+            exit_price: Reference price for logging (actual fill uses MPP limit)
+
+        Returns:
+            bool: True if order placed successfully
+        """
+        try:
+            side = -1 if position.signal_type == SignalType.LONG else 1
+
+            order_data = await self._build_mpp_order_data(position.symbol, partial_qty, side)
+
+            logger.info(
+                f"Placing partial exit order for {position.symbol}: "
+                f"Side={side}, Qty={partial_qty}, "
+                f"LimitPrice={order_data['limitPrice']:.2f} (ref price={exit_price:.2f})"
+            )
+
+            await self._rate_limiter.acquire()
+
+            response = self.fyers.place_order(data=order_data)
+
+            if response and response.get('s') == 'ok':
+                order_id = response.get('id')
+                self.placed_orders[order_id] = {
+                    'symbol': position.symbol,
+                    'type': 'PARTIAL_EXIT',
+                    'position': position,
+                    'response': response,
+                    'timestamp': datetime.now()
+                }
+                logger.info(f"Partial exit order placed - Qty: {partial_qty}, Order ID: {order_id}")
+                return True
+            else:
+                error_msg = response.get('message', 'Unknown error')
+                logger.error(f"Partial exit order failed: {error_msg}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error placing partial exit order for {position.symbol}: {e}")
+            return False
+
     async def modify_stop_loss(self, position: Position, new_stop: float) -> bool:
         """
         Modify stop loss order (for trailing stops)
