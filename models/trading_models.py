@@ -120,8 +120,11 @@ class Position:
     max_favorable_excursion: float = 0.0
     max_adverse_excursion: float = 0.0
 
-    # NEW: Queue for pending stop loss modifications
-    pending_stop_modification: Optional[float] = None  # ✨ ADD THIS LINE
+    # Queue for pending stop loss modifications
+    pending_stop_modification: Optional[float] = None
+
+    # Take profit tracking: True after 1% profit partial exit has fired
+    take_profit_triggered: bool = False
 
     def __post_init__(self):
         self.current_stop_loss = self.stop_loss
