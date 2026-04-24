@@ -1005,13 +1005,17 @@ class ORBStrategy:
                         # Always clear the pending modification
                         position.pending_stop_modification = None
 
-                # Check stop loss
-                if self._should_exit_on_stop_loss(position, current_price):
+                # Check 1% take profit — fires once, sells 50%, moves stop to breakeven
+                if self._should_take_partial_profit(position, current_price):
+                    await self._execute_take_profit(position, current_price)
+
+                # Check stop loss (current_stop_loss is breakeven after take profit fires)
+                elif self._should_exit_on_stop_loss(position, current_price):
                     positions_to_close.append((symbol, "STOP_LOSS", position.unrealized_pnl))
 
-                # Check target
+                # Check target — if take profit already fired, exit the remaining 50% in full
                 elif self._should_exit_on_target(position, current_price):
-                    if self.strategy_config.enable_partial_exits:
+                    if self.strategy_config.enable_partial_exits and not position.take_profit_triggered:
                         await self._partial_exit(position, current_price)
                     else:
                         positions_to_close.append((symbol, "TARGET", position.unrealized_pnl))
@@ -1047,6 +1051,96 @@ class ORBStrategy:
         # Close all positions 20 minutes before market close
         market_close = now.replace(hour=15, minute=10, second=0, microsecond=0)
         return now >= market_close
+
+    def _should_take_partial_profit(self, position: Position, current_price: float) -> bool:
+        """Return True when the 1% take-profit threshold is hit for the first time."""
+        if not self.strategy_config.enable_take_profit:
+            return False
+        if position.take_profit_triggered:
+            return False
+
+        if position.signal_type == SignalType.LONG:
+            profit_pct = ((current_price - position.entry_price) / position.entry_price) * 100
+        else:
+            profit_pct = ((position.entry_price - current_price) / position.entry_price) * 100
+
+        return profit_pct >= self.strategy_config.take_profit_pct
+
+    async def _execute_take_profit(self, position: Position, current_price: float):
+        """
+        Sell 50% of position once profit exceeds take_profit_pct (default 1%).
+
+        Steps:
+          1. Place partial exit order (50% of open quantity).
+          2. Cancel old SL order (sized for full quantity).
+          3. Reduce position.quantity by 50%.
+          4. Re-place SL order for remaining 50% at entry price (breakeven).
+          5. Mark take_profit_triggered so this fires only once.
+          6. Clear any queued trailing-stop modification.
+        """
+        try:
+            partial_qty = int(abs(position.quantity) * 0.5)
+            if partial_qty <= 0:
+                logger.warning(f"Take profit skipped for {position.symbol}: partial_qty=0")
+                return
+
+            # --- 1. Place partial exit order ---
+            exit_placed = await self.order_manager.place_partial_exit_order(
+                position, partial_qty, current_price
+            )
+            if not exit_placed:
+                logger.error(f"Take profit: partial exit order failed for {position.symbol}")
+                return
+
+            # --- 2. Cancel existing SL order (was sized for full quantity) ---
+            if position.sl_order_id:
+                await self.order_manager.cancel_order(position.sl_order_id)
+                position.sl_order_id = None
+
+            # --- 3. Cancel existing target order (was sized for full quantity) ---
+            if position.target_order_id:
+                await self.order_manager.cancel_order(position.target_order_id)
+                position.target_order_id = None
+
+            # --- 4. Update position quantity ---
+            if position.quantity > 0:
+                position.quantity -= partial_qty
+            else:
+                position.quantity += partial_qty
+
+            # --- 5. Book partial P&L ---
+            if position.signal_type == SignalType.LONG:
+                partial_pnl = (current_price - position.entry_price) * partial_qty
+            else:
+                partial_pnl = (position.entry_price - current_price) * partial_qty
+            self.daily_pnl += partial_pnl
+
+            # --- 6. Move stop to breakeven (entry price) ---
+            position.stop_loss = position.entry_price
+            position.current_stop_loss = position.entry_price
+            position.pending_stop_modification = None  # clear any queued trailing update
+
+            # --- 7. Re-place SL order for remaining quantity at entry price ---
+            sl_placed = await self.order_manager.place_stop_loss_order(position)
+            if not sl_placed:
+                logger.warning(
+                    f"Take profit: failed to re-place SL at breakeven for {position.symbol}. "
+                    f"Position protected by software stop only."
+                )
+
+            # --- 8. Mark triggered so this logic runs only once ---
+            position.take_profit_triggered = True
+
+            logger.info(
+                f"Take Profit executed | {position.symbol} | "
+                f"Sold {partial_qty} @ Rs.{current_price:.2f} | "
+                f"Partial P&L: Rs.{partial_pnl:.2f} | "
+                f"Stop → breakeven @ Rs.{position.entry_price:.2f} | "
+                f"Remaining qty: {abs(position.quantity)}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error executing take profit for {position.symbol}: {e}")
 
     async def _partial_exit(self, position: Position, current_price: float):
         """Execute partial exit and move stop to breakeven"""

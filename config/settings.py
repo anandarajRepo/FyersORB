@@ -68,6 +68,10 @@ class ORBStrategyConfig:
     enable_partial_exits: bool = True
     partial_exit_pct: float = 50.0  # % to exit at first target
 
+    # Take profit at 1% gain: sell 50% of position and move stop to breakeven
+    enable_take_profit: bool = True
+    take_profit_pct: float = 1.0  # Profit % that triggers the partial take profit
+
     # Fair Value Gap (FVG) settings
     enable_fvg_check: bool = False  # Enable/disable FVG filtering
     fvg_timeframe: str = "5"  # Timeframe for FVG detection (5min candles)
