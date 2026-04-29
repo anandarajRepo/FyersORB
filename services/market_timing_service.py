@@ -73,7 +73,7 @@ class MarketTimingService:
         return market_start <= now <= market_end
 
     def is_orb_period(self) -> bool:
-        """Check if we're currently in the ORB period (9:15 - 9:30 AM)"""
+        """Check if we're currently in the ORB period (9:15 - 9:20 AM)"""
         now = datetime.now(IST)
 
         if not self.is_trading_day(now):

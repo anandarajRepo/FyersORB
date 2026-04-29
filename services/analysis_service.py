@@ -627,8 +627,8 @@ class ORBTechnicalAnalysisService:
         try:
             now = datetime.now()
 
-            # ORB period ends at 9:30 AM
-            orb_end = now.replace(hour=9, minute=30, second=0, microsecond=0)
+            # ORB period ends at 9:20 AM
+            orb_end = now.replace(hour=9, minute=20, second=0, microsecond=0)
 
             # Best breakouts happen within 30 minutes of ORB end
             optimal_window_end = orb_end + timedelta(minutes=30)
